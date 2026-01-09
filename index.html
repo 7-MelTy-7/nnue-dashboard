@@ -25,10 +25,15 @@
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-overview"></div>
       <div class="stats-row">
-        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><span>Games</span><b id="games">—</b></div>
-        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><span>Loss</span><b id="loss">—</b></div>
-        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><span>LR</span><b id="lr">—</b></div>
-        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><span>Time</span><b id="time">—</b></div>
+        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><div class="stat-line"><span class="stat-label">Games</span><span class="stat-sep">=</span><b id="games" class="stat-value">—</b></div></div>
+        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><div class="stat-line"><span class="stat-label">Loss</span><span class="stat-sep">=</span><b id="loss" class="stat-value">—</b></div></div>
+        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><div class="stat-line"><span class="stat-label">LR</span><span class="stat-sep">=</span><b id="lr" class="stat-value">—</b></div></div>
+        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><div class="stat-line"><span class="stat-label">Time</span><span class="stat-sep">=</span><b id="time" class="stat-value">—</b></div></div>
+      </div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>⏳ Training Progress</h2>
+        <div class="progress-header"><span id="progressText">—</span><b id="progressValue">—</b></div>
+        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><div id="progressFill" class="progress-fill"></div></div>
       </div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
         <h2>📊 Training Status</h2>
@@ -63,14 +68,18 @@
       <div class="garland-decoration garland-tournaments"></div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
         <h2>♟ Auto Tournaments</h2>
-        <pre id="tournamentList">Loading…</pre>
+        <div id="tournamentList" class="tournament-list">Loading…</div>
       </div>
     </section>
     <section id="logs" class="tab pro-card pro-card-garland">
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-logs"></div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
-        <pre id="logOutput">Logs will appear here</pre>
+        <div class="log-toolbar">
+          <button id="demoToggle" class="demo-toggle" type="button">Enable Demo Mode</button>
+          <span id="demoBadge" class="demo-badge" aria-live="polite">Demo = OFF</span>
+        </div>
+        <div id="logOutput" class="log-output" role="log" aria-live="polite">Logs will appear here</div>
       </div>
     </section>
   </main>
@@ -86,6 +95,8 @@
       <div class="explain-grid">
         <div><b>ELO</b><span id="explainElo"></span></div>
         <div><b>Games</b><span id="explainGames"></span></div>
+        <div><b>Wins</b><span id="explainWins"></span></div>
+        <div><b>Loss</b><span id="explainLoss"></span></div>
         <div><b>Status</b><span id="explainStatus"></span></div>
         <div><b>SPRT</b><span id="explainSprt"></span></div>
         <div><b>Confidence</b><span id="explainConf"></span></div>

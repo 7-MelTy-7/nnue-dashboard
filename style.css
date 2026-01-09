@@ -12,7 +12,11 @@ html, body {
 }
 
 body {
-  overflow-y: hidden;
+  overflow-y: auto;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
  body::before {
@@ -93,8 +97,9 @@ body {
   height: 30px;
   pointer-events: none;
   z-index: 4;
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 60' preserveAspectRatio='none'><defs><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23ffffff' stop-opacity='0.96'/><stop offset='0.65' stop-color='%23ffffff' stop-opacity='0.9'/><stop offset='1' stop-color='%23cfeaff' stop-opacity='0.45'/></linearGradient></defs><path d='M0,38 C85,56 140,18 240,34 C335,52 390,22 500,36 C620,54 690,16 780,32 C880,50 920,28 1000,36 L1000,60 L0,60 Z' fill='url(%23g)'/><path d='M0,40 C90,57 150,22 240,36 C330,50 392,24 500,38 C620,54 700,18 780,34 C880,50 922,30 1000,38' fill='none' stroke='%23ffffff' stroke-opacity='0.55' stroke-width='2'/></svg>") no-repeat left top;
-  background-size: 100% 100%;
+  background:
+    radial-gradient(120% 110% at 20% 30%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.78) 42%, rgba(207,234,255,0.38) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(233, 248, 255, 0.62) 70%, rgba(207,234,255,0.12) 100%);
   filter: drop-shadow(0 10px 18px rgba(145, 205, 255, 0.14));
   opacity: 0.95;
   border-top-left-radius: 16px;
@@ -162,6 +167,67 @@ body {
   gap: 12px;
   margin-bottom: 14px;
 }
+
+.stat-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: 'Russo One', 'Montserrat', sans-serif;
+  letter-spacing: 0.2px;
+}
+
+.stat-label {
+  color: rgba(190, 210, 230, 0.86);
+  font-size: 0.98em;
+}
+
+.stat-sep {
+  color: rgba(190, 210, 230, 0.62);
+}
+
+.stat-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.progress-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+
+.progress-header span {
+  color: rgba(190, 210, 230, 0.86);
+  font-size: 0.98em;
+}
+
+.progress-header b {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(10, 12, 22, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(66, 160, 255, 0.9), rgba(120, 230, 255, 0.95));
+  box-shadow: 0 0 18px rgba(120, 190, 255, 0.18);
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
 .stat-card, .card, .pro-card {
   border-radius: 16px;
   padding: 14px 14px 12px 14px;
@@ -177,14 +243,10 @@ body {
 .container {
   width: min(1240px, calc(100% - 24px));
   margin: 0 auto;
-  padding: 6px 0 16px;
+  padding: 6px 0 calc(24px + env(safe-area-inset-bottom));
   position: relative;
   z-index: 6;
-}
-
-.container {
-  max-height: calc(100vh - 170px);
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 /* TAB TRANSITIONS */
@@ -192,27 +254,31 @@ body {
   display: none;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1), transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  transform: translateY(10px);
+  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: none;
 }
 .tab.active {
   display: block;
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
-}
-
-.tab.active {
-  max-height: calc(100vh - 190px);
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
+  transform: none;
 }
 
 .tab.leaving {
   display: block;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(10px);
+  transform: none;
+}
+
+.tab,
+.card,
+.stat-card,
+.pro-card,
+canvas,
+iframe,
+pre {
+  max-width: 100%;
 }
 
 /* REALISTIC CHRISTMAS GARLANDS */
@@ -238,8 +304,9 @@ body {
   right: -12px;
   top: -1px;
   height: 28px;
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 52' preserveAspectRatio='none'><path d='M0 26 C210 10 790 10 1000 26' fill='none' stroke='%2391cdff' stroke-opacity='0.22' stroke-width='2.2' stroke-linecap='round'/><path d='M0 26 L0 42' stroke='%2391cdff' stroke-opacity='0.16' stroke-width='2' stroke-linecap='round'/><path d='M1000 26 L1000 42' stroke='%2391cdff' stroke-opacity='0.16' stroke-width='2' stroke-linecap='round'/></svg>") no-repeat center top;
-  background-size: 100% 100%;
+  background:
+    radial-gradient(120% 90% at 50% 30%, rgba(145,205,255,0.18) 0%, rgba(145,205,255,0.04) 55%, rgba(145,205,255,0.00) 78%),
+    linear-gradient(180deg, rgba(145,205,255,0.22) 0%, rgba(145,205,255,0.10) 60%, rgba(145,205,255,0.00) 100%);
   filter: drop-shadow(0 2px 10px rgba(0,0,0,0.25));
 }
 .garland-decoration::before {
@@ -251,8 +318,7 @@ body {
   top: 8px;
   height: 18px;
   opacity: 0.75;
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 40' preserveAspectRatio='none'><path d='M0 14 C260 30 740 30 1000 14' fill='none' stroke='%23ffffff' stroke-opacity='0.08' stroke-width='2' stroke-linecap='round'/></svg>") no-repeat center top;
-  background-size: 100% 100%;
+  background: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
   filter: drop-shadow(0 1px 6px rgba(145, 205, 255, 0.10));
 }
 .garland-bulb {
@@ -431,6 +497,13 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px;
 }
+
+#eloChart {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
 .elo-card {
   padding: 12px 11px;
   border-radius: 12px;
@@ -451,19 +524,120 @@ body {
 
  #tournamentList,
  #logOutput {
-   max-height: min(52vh, 520px);
-   overflow: auto;
-   margin: 0;
-   padding: 12px;
-   border-radius: 12px;
-   background: rgba(10, 12, 22, 0.26);
-   border: 1px solid rgba(255, 255, 255, 0.06);
-   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  margin: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(10, 12, 22, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  overflow-wrap: anywhere;
  }
 
+.tournament-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 1.02em;
+  line-height: 1.35;
+}
+
+.tournament-item {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tournament-name {
+  font-family: 'Russo One', 'Montserrat', sans-serif;
+  letter-spacing: 0.3px;
+  margin-bottom: 6px;
+}
+
+.tournament-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  color: rgba(190, 210, 230, 0.86);
+}
+
+.tournament-meta b {
+  color: rgba(245, 251, 255, 0.94);
+  font-variant-numeric: tabular-nums;
+}
+
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.demo-toggle {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(245, 251, 255, 0.92);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-family: 'Russo One', 'Montserrat', sans-serif;
+  font-size: 0.95em;
+  cursor: pointer;
+}
+
+.demo-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(145, 205, 255, 0.22);
+}
+
+.demo-badge {
+  font-family: 'Russo One', 'Montserrat', sans-serif;
+  color: rgba(190, 210, 230, 0.86);
+  white-space: nowrap;
+}
+
+.log-output {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.98em;
+  line-height: 1.35;
+  max-height: 56vh;
+  overflow-y: auto;
+  white-space: normal;
+}
+
+.log-line {
+  padding: 2px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-sev-info {
+  color: rgba(245, 251, 255, 0.90);
+}
+
+.log-sev-warn {
+  color: rgba(255, 215, 120, 0.92);
+}
+
+.log-sev-error {
+  color: rgba(255, 120, 120, 0.94);
+}
+
+.log-cat-train {
+  text-shadow: 0 0 10px rgba(120, 190, 255, 0.06);
+}
+
+.log-cat-eval {
+  text-shadow: 0 0 10px rgba(46, 229, 157, 0.08);
+}
+
+.log-cat-io {
+  text-shadow: 0 0 10px rgba(255, 209, 102, 0.06);
+}
+
  #regressions {
-   max-height: min(40vh, 420px);
-   overflow: auto;
+  overflow: visible;
  }
 
 /* LARGER HEATMAP */
@@ -475,8 +649,8 @@ body {
 .embed-heatmap, .pro-heatmap iframe {
   width: 100%;
   max-width: 100%;
-  min-height: 560px;
-  height: 62vh;
+  min-height: 620px;
+  height: 70vh;
   display: block;
   border: none;
   background: none;
@@ -498,15 +672,15 @@ body {
 
 @media (max-width: 750px) {
   .embed-heatmap, .pro-heatmap iframe {
-    min-height: 320px;
-    height: 45vh;
+    min-height: 440px;
+    height: 56vh;
     border-radius: 12px;
   }
 }
 @media (max-width: 520px) {
   .embed-heatmap, .pro-heatmap iframe {
-    min-height: 220px;
-    height: 35vh;
+    min-height: 520px;
+    height: 72vh;
     border-radius: 8px;
   }
 }
@@ -514,7 +688,7 @@ body {
 .footer, .pro-footer {
   text-align: center;
   opacity: 0.78;
-  padding: 16px 7px 10px 7px;
+  padding: 16px 7px calc(14px + env(safe-area-inset-bottom)) 7px;
 }
 .pro-footer span {
   letter-spacing: 0.6px;
@@ -560,6 +734,36 @@ body, html {
   position: relative;
   color: #fff;
 }
+
+.explain-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.explain-grid > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(10, 12, 22, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.explain-grid > div b {
+  color: rgba(190, 210, 230, 0.88);
+  font-weight: 700;
+}
+
+.explain-grid > div span {
+  font-variant-numeric: tabular-nums;
+  color: rgba(245, 251, 255, 0.94);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
 .explain-close {
   position: absolute;
   top: 12px;
@@ -587,7 +791,7 @@ body, html {
     padding: 10px 4px 8px 4px;
   }
   .container {
-    padding: 0 4px;
+    padding: 0 4px calc(24px + env(safe-area-inset-bottom));
   }
   .garland-decoration {
     left: 6px;
@@ -604,13 +808,13 @@ body.hm-dark {
 
 .hm-embed {
   width: 100%;
-  min-height: 100vh;
+  min-height: 100%;
   background: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding: 12px 10px 16px;
+  padding: 12px 10px calc(18px + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -708,6 +912,17 @@ body.hm-dark {
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: 0 1px 10px rgba(0, 0, 0, 0.24);
   transition: background-color 240ms cubic-bezier(0.4, 0, 0.2, 1), transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (max-width: 520px) {
+  .hm-board {
+    gap: 4px;
+    padding: 8px;
+    width: min(420px, 86vw);
+  }
+  .hm-board .square {
+    border-radius: 8px;
+  }
 }
 
 .hm-board .square:hover {
