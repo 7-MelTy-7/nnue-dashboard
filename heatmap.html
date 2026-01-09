@@ -1,22 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>NNUE Heatmap</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <title>NNUE Heatmap</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
 </head>
-<body class="dark">
-
-<h2>🔥 NNUE Position Heatmap</h2>
-
-<div class="controls">
-  <button onclick="setPhase('opening')">Opening</button>
-  <button onclick="setPhase('midgame')">Midgame</button>
-  <button onclick="setPhase('endgame')">Endgame</button>
-</div>
-
-<div id="board" class="board"></div>
-
-<script src="js/heatmap.js"></script>
+<body class="hm-dark">
+  <main class="hm-embed">
+    <header class="hm-header">
+      <nav class="hm-controls">
+        <button class="hm-btn active" data-phase="opening" onclick="setPhase('opening')">🎁 Opening</button>
+        <button class="hm-btn" data-phase="midgame" onclick="setPhase('midgame')">⚔️ Midgame</button>
+        <button class="hm-btn" data-phase="endgame" onclick="setPhase('endgame')">🏁 Endgame</button>
+      </nav>
+    </header>
+    <div class="hm-title">NNUE Activity Heatmap</div>
+    <div id="board" class="hm-board"></div>
+  </main>
+  <script src="js/heatmap.js"></script>
 </body>
 </html>

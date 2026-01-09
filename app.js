@@ -1,99 +1,66 @@
-const $ = id => document.getElementById(id);
-
-document.querySelectorAll("nav button").forEach(btn => {
-  btn.onclick = () => {
-    document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-    btn.classList.add("active");
-    $(btn.dataset.tab).classList.add("active");
-  };
-});
-
-async function fetchJSON(path) {
-  try {
-    const r = await fetch(path);
-    return r.ok ? await r.json() : null;
-  } catch { return null; }
+let eloCache = null;
+function openExplain(version) {
+  if (!eloCache || !eloCache.versions[version]) return;
+  const v = eloCache.versions[version];
+  document.getElementById("explainTitle").textContent = version;
+  document.getElementById("explainElo").textContent = v.elo;
+  document.getElementById("explainGames").textContent = v.games;
+  document.getElementById("explainStatus").textContent = v.status;
+  document.getElementById("explainSprt").textContent = v.sprt;
+  document.getElementById("explainConf").textContent =
+    v.confidence[0] + " — " + v.confidence[1];
+  let note = "Stable version.";
+  if (v.status === "accepted") note = "✔ Statistically better than baseline.";
+  if (v.status === "rejected") note = "✖ Failed SPRT or marked bad.";
+  if (v.status === "regressed") note = "⚠ Performance regression detected.";
+  document.getElementById("explainNote").textContent = note;
+  document.getElementById("explainOverlay").classList.add("active");
 }
-
-/* ===== STATUS & STATS ===== */
-async function updateStatus() {
-  const r = await fetch("../train_status.txt");
-  if (!r.ok) return;
-  const t = await r.text();
-  $("status").textContent = t;
-  $("status").className = "status " + (t.includes("ACTIVE") ? "active" : "");
+function closeExplain() {
+  document.getElementById("explainOverlay").classList.remove("active");
 }
-
-async function updateStats() {
-  const s = await fetchJSON("../train_state.json");
-  if (!s) return;
-  $("games").textContent = s.games;
-  $("loss").textContent = s.loss.toFixed(6);
-  $("lr").textContent = s.lr;
-  $("time").textContent = Math.round(s.time_min) + " min";
-}
-
-/* ===== LOSS GRAPH ===== */
-function drawLine(canvas, data, color) {
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.strokeStyle = color;
-  ctx.beginPath();
-  data.forEach((v,i)=>{
-    const x = i/(data.length-1)*canvas.width;
-    const y = canvas.height*(1-v);
-    if(i===0) ctx.moveTo(x,y);
-    else ctx.lineTo(x,y);
+const oldUpdateTop5 = updateTop5;
+updateTop5 = function(container, ratings) {
+  container.innerHTML = "";
+  ratings.slice(0, 5).forEach(r => {
+    const div = document.createElement("div");
+    div.className = "elo-card";
+    div.innerHTML = `
+      <b>${r.version}</b>
+      <span>ELO: ${r.elo}</span>
+      <span>Games: ${r.games}</span>
+    `;
+    div.onclick = () => openExplain(r.version);
+    container.appendChild(div);
   });
-  ctx.stroke();
-}
-
-async function updateLoss() {
-  const d = await fetchJSON("data/loss.json");
-  if (!d) return;
-  drawLine($("lossChart"), d.map(x=>x.loss), "#2f81f7");
-}
-
-/* ===== ELO GRAPH ===== */
-async function updateElo() {
-  const d = await fetchJSON("data/elo.json");
-  if (!d) return;
-  drawLine($("eloChart"), d.map(x=>x.elo/400+0.5), "#3fb950");
-}
-
-/* ===== HEATMAP ===== */
-async function updateHeatmap() {
-  const d = await fetchJSON("data/heatmap.json");
-  if (!d) return;
-  const c = $("heatmapCanvas");
-  const ctx = c.getContext("2d");
-  const n = d.length;
-  const s = c.width / n;
-  d.forEach((row,y)=>{
-    row.forEach((v,x)=>{
-      ctx.fillStyle = `rgba(47,129,247,${Math.abs(v)})`;
-      ctx.fillRect(x*s,y*s,s,s);
-    });
-  });
-}
-
-/* ===== TOURNAMENTS ===== */
+};
 async function updateTournaments() {
-  const d = await fetchJSON("data/tournaments.json");
+  const d = await fetchJSON("tournaments.json");
   if (!d) return;
-  $("tournamentList").innerText = JSON.stringify(d,null,2);
+  const box = document.getElementById("tournamentList");
+  box.innerHTML = "";
+  d.forEach(t => {
+    const div = document.createElement("div");
+    div.className = "elo-card";
+    div.innerHTML = `
+      <b>${t.name}</b>
+      <span>Games: ${t.games}</span>
+      <span>Winner: ${t.winner}</span>
+    `;
+    box.appendChild(div);
+  });
 }
-
-/* ===== CONTROLS ===== */
-$("pause").onclick = () => fetch("../pause.flag",{method:"PUT"});
-$("resume").onclick = () => fetch("../pause.flag",{method:"DELETE"});
-
-setInterval(()=>{
-  updateStatus();
-  updateStats();
-  updateLoss();
-  updateElo();
-  updateHeatmap();
-  updateTournaments();
-},2000);
+const oldTick = tick;
+tick = async function() {
+  const elo = await loadJSON("elo.json");
+  const data = await loadJSON("data.json");
+  if (elo) {
+    eloCache = elo;
+    drawEloChart(
+      document.getElementById("eloChart"),
+      elo.top5 || []
+    );
+    updateTop5(document.getElementById("top5"), elo.top5 || []);
+  }
+  if (data) updateStatus(data.status);
+};

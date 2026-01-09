@@ -1,62 +1,99 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>NNUE Training Dashboard</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <title>NNUE Training Dashboard 🎄</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Montserrat:wght@300;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
-
-<header>
-  <div class="title">NNUE Training Dashboard</div>
-  <div id="status" class="status idle">⚫ IDLE</div>
-</header>
-
-<nav>
-  <button data-tab="overview" class="active">Overview</button>
-  <button data-tab="elo">ELO</button>
-  <button data-tab="heatmap">Heatmap</button>
-  <button data-tab="tournaments">Tournaments</button>
-  <button data-tab="logs">Logs</button>
-</nav>
-
-<main>
-
-<section id="overview" class="tab active">
-  <div class="stats">
-    <div class="card"><span>Games</span><b id="games">—</b></div>
-    <div class="card"><span>Loss</span><b id="loss">—</b></div>
-    <div class="card"><span>LR</span><b id="lr">—</b></div>
-    <div class="card"><span>Time</span><b id="time">—</b></div>
+  <canvas id="snow"></canvas>
+  <header class="header subtle-snow-panel">
+    <h1 class="title glow">NNUE Training Dashboard</h1>
+    <p class="subtitle">Auto-League · SPRT · ELO · Regression Guard</p>
+  </header>
+  <nav class="top-nav pro-nav">
+    <button class="active nav-btn" data-tab="overview">Overview</button>
+    <button class="nav-btn" data-tab="elo">ELO</button>
+    <button class="nav-btn" data-tab="heatmap">Heatmap</button>
+    <button class="nav-btn" data-tab="tournaments">Tournaments</button>
+    <button class="nav-btn" data-tab="logs">Logs</button>
+  </nav>
+  <main class="container">
+    <section id="overview" class="tab active pro-card pro-card-garland">
+      <div class="card-snowcap"></div>
+      <div class="garland-decoration garland-overview"></div>
+      <div class="stats-row">
+        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><span>Games</span><b id="games">—</b></div>
+        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><span>Loss</span><b id="loss">—</b></div>
+        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><span>LR</span><b id="lr">—</b></div>
+        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><span>Time</span><b id="time">—</b></div>
+      </div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>📊 Training Status</h2>
+        <div class="status-panel">
+          <span id="statusText">loading…</span>
+        </div>
+      </div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>⚠️ Regression Watch</h2>
+        <div id="regressions" class="regression-list"></div>
+      </div>
+    </section>
+    <section id="elo" class="tab pro-card pro-card-garland">
+      <div class="card-snowcap"></div>
+      <div class="garland-decoration garland-elo"></div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>📈 ELO Progress (95% CI)</h2>
+        <canvas id="eloChart" width="900" height="360"></canvas>
+      </div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>🏆 Top-5 NNUE</h2>
+        <div id="top5" class="top5-grid"></div>
+      </div>
+    </section>
+    <section id="heatmap" class="tab pro-card pro-heatmap pro-card-garland">
+      <div class="card-snowcap"></div>
+      <div class="garland-decoration garland-heatmap"></div>
+      <iframe src="heatmap.html" class="embed-heatmap" title="NNUE Activity Heatmap" frameborder="0" loading="lazy"></iframe>
+    </section>
+    <section id="tournaments" class="tab pro-card pro-card-garland">
+      <div class="card-snowcap"></div>
+      <div class="garland-decoration garland-tournaments"></div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>♟ Auto Tournaments</h2>
+        <pre id="tournamentList">Loading…</pre>
+      </div>
+    </section>
+    <section id="logs" class="tab pro-card pro-card-garland">
+      <div class="card-snowcap"></div>
+      <div class="garland-decoration garland-logs"></div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <pre id="logOutput">Logs will appear here</pre>
+      </div>
+    </section>
+  </main>
+  <footer class="footer pro-footer">
+    <span>❄️ Autonomous NNUE system · Live updates · New Year 2026</span>
+  </footer>
+  <div id="explainOverlay" class="explain-overlay">
+    <div class="explain-card pro-card-garland">
+      <div class="card-snowcap"></div>
+      <div class="garland-decoration garland-modal"></div>
+      <button class="explain-close" onclick="closeExplain()">✖</button>
+      <h2 id="explainTitle">NNUE Version</h2>
+      <div class="explain-grid">
+        <div><b>ELO</b><span id="explainElo"></span></div>
+        <div><b>Games</b><span id="explainGames"></span></div>
+        <div><b>Status</b><span id="explainStatus"></span></div>
+        <div><b>SPRT</b><span id="explainSprt"></span></div>
+        <div><b>Confidence</b><span id="explainConf"></span></div>
+      </div>
+      <div class="explain-note" id="explainNote"></div>
+    </div>
   </div>
-
-  <div class="controls">
-    <button id="pause" class="warn">⏸ Pause</button>
-    <button id="resume" class="ok">▶ Resume</button>
-  </div>
-
-  <canvas id="lossChart"></canvas>
-</section>
-
-<section id="elo" class="tab">
-  <canvas id="eloChart"></canvas>
-</section>
-
-<section id="heatmap" class="tab">
-  <canvas id="heatmapCanvas"></canvas>
-</section>
-
-<section id="tournaments" class="tab">
-  <div id="tournamentList">Waiting for tournaments…</div>
-</section>
-
-<section id="logs" class="tab">
-  <pre id="logsBox">Waiting for logs…</pre>
-</section>
-
-</main>
-
-<script src="app.js"></script>
+  <script src="app.js"></script>
+  <script src="js/main.js"></script>
 </body>
 </html>
