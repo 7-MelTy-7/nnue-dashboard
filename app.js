@@ -259,6 +259,10 @@
     }
   }
 
+  function sleepMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   function loadPersistedState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -960,20 +964,41 @@
 
   async function fetchJSON(path, opts) {
     const timeoutMs = (opts && opts.timeoutMs) ? opts.timeoutMs : TICK_TIMEOUT_MS;
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const u = new URL(path, BACKEND_BASE);
-      u.searchParams.set("t", String(Date.now()));
-      const res = await fetch(u.toString(), { signal: ctrl.signal, cache: "no-store" });
-      if (!res.ok) return { ok: false, status: res.status, data: null };
-      const json = await res.json();
-      return { ok: true, status: res.status, data: json };
-    } catch {
-      return { ok: false, status: 0, data: null };
-    } finally {
-      clearTimeout(t);
+    const attempts = (opts && typeof opts.attempts === "number") ? Math.max(1, Math.min(3, opts.attempts)) : 3;
+
+    for (let i = 0; i < attempts; i++) {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const u = new URL(path, BACKEND_BASE);
+        u.searchParams.set("t", String(Date.now()));
+        const res = await fetch(u.toString(), { signal: ctrl.signal, cache: "no-store" });
+        if (!res.ok) return { ok: false, status: res.status, data: null };
+
+        const txt = await res.text();
+        try {
+          const json = JSON.parse(txt);
+          return { ok: true, status: res.status, data: json };
+        } catch {
+          if (i < attempts - 1) {
+            const jitter = 100 + Math.floor(Math.random() * 201);
+            await sleepMs(jitter);
+            continue;
+          }
+          return { ok: false, status: res.status, data: null };
+        }
+      } catch {
+        if (i < attempts - 1) {
+          const jitter = 100 + Math.floor(Math.random() * 201);
+          await sleepMs(jitter);
+          continue;
+        }
+        return { ok: false, status: 0, data: null };
+      } finally {
+        clearTimeout(t);
+      }
     }
+    return { ok: false, status: 0, data: null };
   }
 
   async function postJSON(path, body, opts) {
