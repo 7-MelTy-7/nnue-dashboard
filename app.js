@@ -19,10 +19,12 @@ function openExplain(version) {
 function closeExplain() {
   document.getElementById("explainOverlay").classList.remove("active");
 }
-const oldUpdateTop5 = updateTop5;
+const oldUpdateTop5 = (typeof updateTop5 === "function") ? updateTop5 : null;
 updateTop5 = function(container, ratings) {
+  if (!container) return;
   container.innerHTML = "";
-  ratings.slice(0, 5).forEach(r => {
+  const list = Array.isArray(ratings) ? ratings : [];
+  list.slice(0, 5).forEach(r => {
     const div = document.createElement("div");
     div.className = "elo-card";
     div.innerHTML = `
@@ -33,11 +35,14 @@ updateTop5 = function(container, ratings) {
     div.onclick = () => openExplain(r.version);
     container.appendChild(div);
   });
+  if (oldUpdateTop5 && list.length === 0) oldUpdateTop5(container, list);
 };
 async function updateTournaments() {
+  if (typeof fetchJSON !== "function") return;
   const d = await fetchJSON("tournaments.json");
   if (!d) return;
   const box = document.getElementById("tournamentList");
+  if (!box) return;
   box.innerHTML = "";
   d.forEach(t => {
     const div = document.createElement("div");
@@ -50,17 +55,20 @@ async function updateTournaments() {
     box.appendChild(div);
   });
 }
-const oldTick = tick;
+const oldTick = (typeof tick === "function") ? tick : null;
 tick = async function() {
-  const elo = await loadJSON("elo.json");
-  const data = await loadJSON("data.json");
+  const elo = (typeof loadJSON === "function") ? await loadJSON("elo.json") : null;
+  const data = (typeof loadJSON === "function") ? await loadJSON("data.json") : null;
   if (elo) {
     eloCache = elo;
-    drawEloChart(
-      document.getElementById("eloChart"),
-      elo.top5 || []
-    );
+    if (typeof drawEloChart === "function") {
+      drawEloChart(
+        document.getElementById("eloChart"),
+        elo.top5 || []
+      );
+    }
     updateTop5(document.getElementById("top5"), elo.top5 || []);
   }
-  if (data) updateStatus(data.status);
+  if (data && typeof updateStatus === "function") updateStatus(data.status);
+  if (oldTick) return oldTick();
 };

@@ -14,6 +14,7 @@ async function loadJSON(path) {
 function drawEloChart(canvas, ratings) {
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!ratings || !ratings.length) return;
   const pad = 50;
   const w = canvas.width - pad * 2;
   const h = canvas.height - pad * 2;
@@ -79,10 +80,10 @@ async function tick() {
   const data = await loadJSON("data.json");
   if (elo) {
     drawEloChart(document.getElementById("eloChart"), elo.top5 || []);
-    updateTop5(document.getElementById("top5"), elo.top5 || []);
+    if (typeof updateTop5 === "function") updateTop5(document.getElementById("top5"), elo.top5 || []);
     updateRegressions(elo);
   }
-  if (data) updateStatus(data.status);
+  if (data && typeof updateStatus === "function") updateStatus(data.status);
 }
 setInterval(tick, REFRESH_MS);
 tick();
@@ -90,6 +91,16 @@ tick();
 document.addEventListener('DOMContentLoaded', () => {
   if (window._newyearDecorLoaded) return;
   window._newyearDecorLoaded = true;
+
+  function notifyHeatmap(type) {
+    const frame = document.querySelector('iframe.embed-heatmap');
+    if (!frame || !frame.contentWindow) return;
+    try {
+      frame.contentWindow.postMessage({ type: type || 'heatmap:rerender' }, '*');
+    } catch {
+      return;
+    }
+  }
   
   document.querySelectorAll('.top-nav button').forEach(btn => {
     btn.style.pointerEvents = 'auto';
@@ -126,6 +137,10 @@ document.addEventListener('DOMContentLoaded', () => {
           else tab.classList.remove('active');
         });
 
+        if (target === 'heatmap') {
+          setTimeout(() => notifyHeatmap('heatmap:show'), 60);
+        }
+
         setTimeout(() => {
           tabButtons.forEach(btn => (btn.disabled = false));
         }, 30);
@@ -139,6 +154,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (tab.id === target) tab.classList.add('active');
       else tab.classList.remove('active');
     });
+
+    if (target === 'heatmap') {
+      setTimeout(() => notifyHeatmap('heatmap:show'), 60);
+    }
     setTimeout(() => {
       tabButtons.forEach(btn => (btn.disabled = false));
     }, 30);
@@ -218,6 +237,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document
     .querySelectorAll('.tab > .garland-decoration, .explain-card > .garland-decoration')
     .forEach(createGarlandBulbs);
+
+  window.addEventListener('resize', () => {
+    const activeTab = document.querySelector('.tab.active');
+    if (activeTab && activeTab.id === 'heatmap') notifyHeatmap('heatmap:rerender');
+  });
   
   // SNOW ANIMATION
   const canvas = document.getElementById('snow');

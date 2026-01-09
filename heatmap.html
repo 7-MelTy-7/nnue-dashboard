@@ -10,12 +10,13 @@
   <main class="hm-embed">
     <header class="hm-header">
       <nav class="hm-controls">
-        <button class="hm-btn active" data-phase="opening" onclick="setPhase('opening')">🎁 Opening</button>
-        <button class="hm-btn" data-phase="midgame" onclick="setPhase('midgame')">⚔️ Midgame</button>
-        <button class="hm-btn" data-phase="endgame" onclick="setPhase('endgame')">🏁 Endgame</button>
+        <button class="hm-btn active" data-phase="opening">🎁 Opening</button>
+        <button class="hm-btn" data-phase="midgame">⚔️ Midgame</button>
+        <button class="hm-btn" data-phase="endgame">🏁 Endgame</button>
       </nav>
     </header>
     <div class="hm-title">NNUE Activity Heatmap</div>
+    <div id="hmStatus" class="hm-status" aria-live="polite"></div>
     <div id="board" class="hm-board"></div>
   </main>
   <script src="js/heatmap.js"></script>
