@@ -4,6 +4,8 @@
 
   const { store, actions } = app;
 
+  const MAX_LOG_DOM_NODES = 1200;
+
   function normalizeTab(t) {
     const ok = ["overview", "elo", "heatmap", "tournaments", "logs"];
     return ok.includes(t) ? t : "overview";
@@ -34,7 +36,7 @@
   }
 
   function postToHeatmap(msg) {
-    const frame = document.querySelector("iframe.embed-heatmap");
+    const frame = document.querySelector("iframe.embed-heatmap-iframe");
     if (!frame || !frame.contentWindow) return;
     try {
       frame.contentWindow.postMessage(msg, "*");
@@ -43,15 +45,27 @@
     }
   }
 
+  function ensureHeatmapMounted() {
+    const mount = ui.els.heatmapMount;
+    if (!mount) return;
+    if (mount.querySelector("iframe")) return;
+    const iframe = document.createElement("iframe");
+    iframe.src = "heatmap.html";
+    iframe.className = "embed-heatmap-iframe";
+    iframe.title = "NNUE Activity Heatmap";
+    iframe.setAttribute("frameborder", "0");
+    iframe.setAttribute("loading", "lazy");
+    mount.appendChild(iframe);
+  }
+
   function renderProgress(state) {
     const p = state.data && state.data.progress;
     if (!ui.els.progressFill || !ui.els.progressValue || !ui.els.progressText) return;
-    const demo = !!(state.ui && state.ui.demo && state.ui.demo.enabled);
     const percent = (p && typeof p.percent === "number" && isFinite(p.percent)) ? Math.max(0, Math.min(1, p.percent)) : null;
     const pctText = (percent == null) ? "0%" : `${Math.round(percent * 100)}%`;
     ui.els.progressValue.textContent = pctText;
     if (p && typeof p.text === "string" && p.text.trim()) ui.els.progressText.textContent = p.text;
-    else ui.els.progressText.textContent = demo ? "DEMO" : "Idle";
+    else ui.els.progressText.textContent = "Idle";
     ui.els.progressFill.style.width = (percent == null) ? "0%" : `${(percent * 100).toFixed(1)}%`;
   }
 
@@ -93,61 +107,162 @@
     el.appendChild(frag);
   }
 
+  function classifyLogLine(line) {
+    if (line && typeof line === "object") {
+      const level = String(line.level || "INFO").toUpperCase();
+      const subsystem = String(line.subsystem || "MISC").toUpperCase();
+      const sev = (level === "ERROR") ? "error" : (level === "WARN") ? "warn" : "info";
+      const cat = (subsystem === "TOURNAMENT") ? "tournament" :
+        (subsystem === "TRAIN") ? "train" :
+        (subsystem === "EVAL") ? "eval" :
+        (subsystem === "IO") ? "io" : "misc";
+      return { sev, cat };
+    }
+    const s = String(line || "");
+    const up = s.toUpperCase();
+    let sev = "info";
+    if (up.includes("ERROR") || up.includes("FATAL")) sev = "error";
+    else if (up.includes("WARN")) sev = "warn";
+
+    let cat = "misc";
+    if (up.includes("TOURNAMENT")) cat = "tournament";
+    else if (up.includes("TRAIN")) cat = "train";
+    else if (up.includes("EVAL")) cat = "eval";
+    else if (up.includes("IO")) cat = "io";
+
+    return { sev, cat };
+  }
+
+  function logsPassFilter(line, filters) {
+    const { sev, cat } = classifyLogLine(line);
+    if (filters.level !== "all" && sev !== filters.level) return false;
+    if (filters.subsystem !== "all" && cat !== filters.subsystem) return false;
+    return true;
+  }
+
+  function getLogLineText(x) {
+    if (x && typeof x === "object") {
+      if (typeof x.line === "string" && x.line) return x.line;
+      const ts = (typeof x.ts === "string" && x.ts) ? x.ts : "";
+      const level = (typeof x.level === "string" && x.level) ? x.level : "INFO";
+      const subsystem = (typeof x.subsystem === "string" && x.subsystem) ? x.subsystem : "MISC";
+      const msg = (typeof x.message === "string" && x.message) ? x.message : "";
+      if (!ts) return `[${level}] [${subsystem}] ${msg}`;
+      return `[${ts}] [${level}] [${subsystem}] ${msg}`;
+    }
+    return String(x);
+  }
+
+  function getLogStableKey(x) {
+    if (x && typeof x === "object") {
+      if (typeof x.key === "string" && x.key) return x.key;
+      if (typeof x.line === "string" && x.line) return x.line;
+      return getLogLineText(x);
+    }
+    return String(x);
+  }
+
+  function computeLogSlice(lines, filters) {
+    const n = (filters.window === "lastN") ? Number(filters.n || 200) : null;
+    if (filters.window === "latest") {
+      const start = Math.max(0, lines.length - 300);
+      return { start, end: lines.length };
+    }
+    if (filters.window === "lastN") {
+      const start = Math.max(0, lines.length - Math.max(1, n || 200));
+      return { start, end: lines.length };
+    }
+    return { start: 0, end: lines.length };
+  }
+
   function renderLogs(state) {
     const el = ui.els.logOutput;
     if (!el) return;
+
+    const uiLogs = state.ui && state.ui.logs ? state.ui.logs : { level: "all", subsystem: "all", window: "latest", n: 200, paused: false };
+    const filterKey = `${uiLogs.level}|${uiLogs.subsystem}|${uiLogs.window}|${uiLogs.n}`;
+
     if (state.loading && state.loading.logs) {
       ui.logsRender.key = null;
+      ui.logsRender.filterKey = null;
       el.textContent = "loading…";
       return;
     }
     if (state.error && state.error.logs) {
       ui.logsRender.key = null;
+      ui.logsRender.filterKey = null;
       el.textContent = state.error.logs;
       return;
     }
+
     const logs = state.data && state.data.logs;
     const lines = Array.isArray(logs) ? logs : [];
     if (!lines.length) {
       ui.logsRender.key = null;
+      ui.logsRender.filterKey = null;
       el.textContent = "No logs.";
       return;
     }
 
-    const last = String(lines[lines.length - 1] || "");
-    const key = `${lines.length}|${last}`;
-    if (ui.logsRender.key === key) return;
-    ui.logsRender.key = key;
+    if (uiLogs.paused) return;
+
+    const last0 = getLogStableKey(lines[lines.length - 1] || "");
+    const last1 = getLogStableKey(lines[lines.length - 2] || "");
+    const last2 = getLogStableKey(lines[lines.length - 3] || "");
+    const key = `${lines.length}|${last2}|${last1}|${last0}`;
+    const slice = computeLogSlice(lines, uiLogs);
+
+    const needsFull = (ui.logsRender.key == null) || (ui.logsRender.filterKey !== filterKey) || (ui.logsRender.sliceStart !== slice.start);
 
     const atBottom = Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) < 12;
 
-    el.textContent = "";
-    const frag = document.createDocumentFragment();
+    if (needsFull) {
+      ui.logsRender.key = key;
+      ui.logsRender.filterKey = filterKey;
+      ui.logsRender.sliceStart = slice.start;
+      ui.logsRender.renderedIndex = slice.start;
+      ui.logsRender.prevLen = lines.length;
 
-    function classify(line) {
-      const s = String(line || "");
-      const up = s.toUpperCase();
-      let sev = "info";
-      if (up.includes("ERROR") || up.includes("FATAL")) sev = "error";
-      else if (up.includes("WARN")) sev = "warn";
+      el.textContent = "";
+      const frag = document.createDocumentFragment();
+      for (let i = slice.start; i < slice.end; i++) {
+        const line = lines[i];
+        if (!logsPassFilter(line, uiLogs)) continue;
+        const { sev, cat } = classifyLogLine(line);
+        const row = document.createElement("div");
+        row.className = `log-line log-sev-${sev} log-cat-${cat}`;
+        row.textContent = getLogLineText(line);
+        frag.appendChild(row);
+      }
+      el.appendChild(frag);
 
-      let cat = "misc";
-      if (up.includes("TRAIN")) cat = "train";
-      else if (up.includes("EVAL")) cat = "eval";
-      else if (up.includes("IO")) cat = "io";
-
-      return { sev, cat };
+      while (el.childNodes.length > MAX_LOG_DOM_NODES) el.removeChild(el.firstChild);
+      if (atBottom) el.scrollTop = el.scrollHeight;
+      return;
     }
 
-    lines.slice(-1000).forEach((line) => {
-      const { sev, cat } = classify(line);
+    if (ui.logsRender.key === key) return;
+
+    // Incremental append: render only new lines.
+    const prevLen = ui.logsRender.prevLen || 0;
+    const startIdx = Math.max(slice.start, prevLen);
+
+    ui.logsRender.key = key;
+    ui.logsRender.prevLen = lines.length;
+
+    const frag = document.createDocumentFragment();
+    for (let i = startIdx; i < slice.end; i++) {
+      const line = lines[i];
+      if (!logsPassFilter(line, uiLogs)) continue;
+      const { sev, cat } = classifyLogLine(line);
       const row = document.createElement("div");
       row.className = `log-line log-sev-${sev} log-cat-${cat}`;
-      row.textContent = String(line);
+      row.textContent = getLogLineText(line);
       frag.appendChild(row);
-    });
+    }
+    if (frag.childNodes.length) el.appendChild(frag);
 
-    el.appendChild(frag);
+    while (el.childNodes.length > MAX_LOG_DOM_NODES) el.removeChild(el.firstChild);
     if (atBottom) el.scrollTop = el.scrollHeight;
   }
 
@@ -182,7 +297,10 @@
       renderedTab: null
     },
     logsRender: {
-      key: null
+      key: null,
+      filterKey: null,
+      sliceStart: 0,
+      prevLen: 0
     },
     raf: 0,
     pendingState: null,
@@ -193,6 +311,7 @@
     ui.els = {
       navButtons: Array.from(document.querySelectorAll(".top-nav button")),
       tabs: Array.from(document.querySelectorAll(".tab")),
+      heatmapMount: byId("heatmapMount"),
       overlay: byId("explainOverlay"),
       explainTitle: byId("explainTitle"),
       explainElo: byId("explainElo"),
@@ -216,8 +335,12 @@
       progressFill: byId("progressFill"),
       tournamentList: byId("tournamentList"),
       logOutput: byId("logOutput"),
-      demoToggle: byId("demoToggle"),
-      demoBadge: byId("demoBadge")
+      logLevel: byId("logLevel"),
+      logSubsystem: byId("logSubsystem"),
+      logWindow: byId("logWindow"),
+      logN: byId("logN"),
+      logNWrap: byId("logNWrap"),
+      logPause: byId("logPause")
     };
   }
 
@@ -255,20 +378,36 @@
       }
     });
 
-    if (ui.els.demoToggle) {
-      ui.els.demoToggle.addEventListener("click", (e) => {
-        e.preventDefault();
-        const s = store.getState();
-        const on = !!(s.ui && s.ui.demo && s.ui.demo.enabled);
-        actions.setDemoMode(!on);
-      });
-    }
+    const bind = (el, type, fn) => {
+      if (!el) return;
+      el.addEventListener(type, fn);
+    };
+
+    bind(ui.els.logLevel, "change", () => actions.setLogsUi({ level: ui.els.logLevel.value }));
+    bind(ui.els.logSubsystem, "change", () => actions.setLogsUi({ subsystem: ui.els.logSubsystem.value }));
+    bind(ui.els.logWindow, "change", () => actions.setLogsUi({ window: ui.els.logWindow.value }));
+    bind(ui.els.logN, "change", () => actions.setLogsUi({ n: Number(ui.els.logN.value) }));
+    bind(ui.els.logPause, "click", (e) => {
+      e.preventDefault();
+      const s = store.getState();
+      const paused = !!(s.ui && s.ui.logs && s.ui.logs.paused);
+      actions.setLogsUi({ paused: !paused });
+      // Force a rebuild when resuming.
+      ui.logsRender.key = null;
+      ui.logsRender.filterKey = null;
+    });
   }
 
-  function renderDemoMode(state) {
-    const on = !!(state.ui && state.ui.demo && state.ui.demo.enabled);
-    if (ui.els.demoToggle) ui.els.demoToggle.textContent = on ? "Disable Demo Mode" : "Enable Demo Mode";
-    if (ui.els.demoBadge) ui.els.demoBadge.textContent = on ? "Demo = ON" : "Demo = OFF";
+  function renderLogsControls(state) {
+    const uiLogs = state.ui && state.ui.logs ? state.ui.logs : null;
+    if (!uiLogs) return;
+    if (ui.els.logLevel) ui.els.logLevel.value = uiLogs.level;
+    if (ui.els.logSubsystem) ui.els.logSubsystem.value = uiLogs.subsystem;
+    if (ui.els.logWindow) ui.els.logWindow.value = uiLogs.window;
+    if (ui.els.logN) ui.els.logN.value = String(uiLogs.n);
+    if (ui.els.logNWrap) ui.els.logNWrap.style.display = (uiLogs.window === "lastN") ? "" : "none";
+    if (ui.els.logPause) ui.els.logPause.textContent = uiLogs.paused ? "Resume" : "Pause";
+    if (ui.els.logOutput) ui.els.logOutput.setAttribute("aria-live", uiLogs.paused ? "off" : "polite");
   }
 
   function setNavActive(activeTab) {
@@ -290,8 +429,10 @@
       ui.els.tabs.forEach(tab => tab.classList.toggle("active", tab.id === target));
       ui.tabTransition.renderedTab = target;
       if (target === "heatmap") {
+        ensureHeatmapMounted();
         postToHeatmap({ type: "heatmap:show" });
         postToHeatmap({ type: "heatmap:setPhase", phase: store.getState().activeHeatmapPhase });
+        postToHeatmap({ type: "heatmap:visibility", visible: true });
       }
       return;
     }
@@ -319,10 +460,14 @@
 
       const s = store.getState();
       if (target === "heatmap") {
+        ensureHeatmapMounted();
         setTimeout(() => {
           postToHeatmap({ type: "heatmap:show" });
           postToHeatmap({ type: "heatmap:setPhase", phase: s.activeHeatmapPhase });
+          postToHeatmap({ type: "heatmap:visibility", visible: true });
         }, 60);
+      } else {
+        postToHeatmap({ type: "heatmap:visibility", visible: false });
       }
       if (s.activeTab !== target) startTabTransition(s.activeTab);
     }, 360);
@@ -332,7 +477,7 @@
     const d = state.data && state.data.training;
     if (ui.els.games) ui.els.games.textContent = (d && typeof d.games === "number") ? String(d.games) : "—";
     if (ui.els.loss) ui.els.loss.textContent = (d && typeof d.loss === "number") ? fmtNumber(d.loss, 6) : "—";
-    if (ui.els.lr) ui.els.lr.textContent = (d && typeof d.temperature === "number") ? fmtNumber(d.temperature, 6) : "—";
+    if (ui.els.lr) ui.els.lr.textContent = (d && typeof d.lr === "number") ? fmtNumber(d.lr, 6) : "—";
     if (ui.els.time) {
       const start = state.meta && state.meta.sessionStart && state.meta.sessionStart.training;
       ui.els.time.textContent = start ? formatDuration(Date.now() - start) : "—";
@@ -340,6 +485,7 @@
 
     if (ui.els.statusText) {
       if (state.error && state.error.training) ui.els.statusText.textContent = state.error.training;
+      else if (d && typeof d.status_text === "string") ui.els.statusText.textContent = d.status_text;
       else if (d && typeof d.status === "string") ui.els.statusText.textContent = d.status;
       else if (state.loading && state.loading.training) ui.els.statusText.textContent = "loading…";
       else ui.els.statusText.textContent = "—";
@@ -537,14 +683,16 @@
     if (!ui.tabTransition.inProgress) startTabTransition(state.activeTab);
     renderOverview(state);
     renderProgress(state);
-    renderDemoMode(state);
-    renderTop5(state);
-    renderRegressions(state);
-    drawEloChart(state);
+    renderLogsControls(state);
+    if (state.activeTab === "elo") {
+      renderTop5(state);
+      renderRegressions(state);
+      drawEloChart(state);
+    }
     renderExplain(state);
     renderHeatmapSync(state, meta);
-    renderTournaments(state);
-    renderLogs(state);
+    if (state.activeTab === "tournaments") renderTournaments(state);
+    if (state.activeTab === "logs") renderLogs(state);
   }
 
   function scheduleRender(state, meta) {

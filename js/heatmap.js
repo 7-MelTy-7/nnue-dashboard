@@ -6,6 +6,78 @@ let loadInFlight = false;
 let pendingRerenderTimer = 0;
 let zeroSizeRetries = 0;
 
+let pollTimer = 0;
+let isVisible = true;
+
+function unwrapEnvelope(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { api_version: null, payload: raw };
+  if (typeof raw.api_version === "string" && ("payload" in raw)) return { api_version: raw.api_version, payload: raw.payload };
+  if (typeof raw.apiVersion === "string" && ("payload" in raw)) return { api_version: raw.apiVersion, payload: raw.payload };
+  return { api_version: null, payload: raw };
+}
+
+function normalizeHeatmapPayload(raw) {
+  const env = unwrapEnvelope(raw);
+  const p = env.payload;
+  if (!p || typeof p !== "object") return { phases: null, colorScale: null };
+
+  if (p && (p.opening || p.midgame || p.endgame)) {
+    return {
+      phases: {
+        opening: Array.isArray(p.opening) ? p.opening : null,
+        midgame: Array.isArray(p.midgame) ? p.midgame : null,
+        endgame: Array.isArray(p.endgame) ? p.endgame : null
+      },
+      colorScale: null
+    };
+  }
+
+  const phases = p.phases || p.phase_data || null;
+  const scale = p.color_scale || p.colorScale || null;
+  return { phases, colorScale: scale };
+}
+
+function getPhaseValues(norm, phaseName) {
+  if (!norm) return { rows: 8, cols: 8, values: null };
+  const phases = norm.phases;
+  if (!phases) return { rows: 8, cols: 8, values: null };
+
+  const p = phases[phaseName];
+  if (Array.isArray(p)) {
+    return { rows: 8, cols: 8, values: p };
+  }
+  if (p && typeof p === "object") {
+    const rows = (typeof p.rows === "number" && isFinite(p.rows) && p.rows > 0) ? p.rows : 8;
+    const cols = (typeof p.cols === "number" && isFinite(p.cols) && p.cols > 0) ? p.cols : 8;
+    const values = Array.isArray(p.values) ? p.values : (Array.isArray(p.intensity) ? p.intensity : null);
+    return { rows, cols, values };
+  }
+  return { rows: 8, cols: 8, values: null };
+}
+
+function getScaleStops(norm) {
+  const s = norm && norm.colorScale;
+  const stops = (s && Array.isArray(s.stops)) ? s.stops : null;
+  if (stops && stops.length) {
+    const out = [];
+    for (let i = 0; i < stops.length; i++) {
+      const t = stops[i] && typeof stops[i].t === "number" ? stops[i].t : null;
+      const c = stops[i] && (stops[i].color || stops[i].c);
+      if (t == null) continue;
+      if (Array.isArray(c) && c.length >= 3) out.push({ t, c: [c[0], c[1], c[2]] });
+      else if (typeof c === "string") out.push({ t, c });
+    }
+    if (out.length >= 2) return out;
+  }
+  return [
+    { t: 0.0, c: [10, 16, 32] },
+    { t: 0.25, c: [20, 52, 120] },
+    { t: 0.55, c: [40, 160, 255] },
+    { t: 0.78, c: [120, 235, 255] },
+    { t: 1.0, c: [255, 220, 120] }
+  ];
+}
+
 function hasParent() {
   try {
     return window.parent && window.parent !== window;
@@ -86,6 +158,27 @@ async function loadData() {
   }
 }
 
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(loadData, 2000);
+}
+
+function stopPolling() {
+  if (!pollTimer) return;
+  clearInterval(pollTimer);
+  pollTimer = 0;
+}
+
+function setVisible(v) {
+  isVisible = !!v;
+  if (isVisible) {
+    startPolling();
+    loadData();
+  } else {
+    stopPolling();
+  }
+}
+
 function render() {
   const board = document.getElementById("board");
   if (!board) return;
@@ -102,8 +195,15 @@ function render() {
   }
   zeroSizeRetries = 0;
 
-  const values = (data && data[phase] && Array.isArray(data[phase])) ? data[phase] : null;
-  const fallbackValues = values && values.length ? values : new Array(64).fill(0);
+  const norm = normalizeHeatmapPayload(data);
+  const pv = getPhaseValues(norm, phase);
+  const rows = pv.rows;
+  const cols = pv.cols;
+  const values = pv.values;
+  const count = Math.max(1, rows * cols);
+  const fallbackValues = values && values.length ? values : new Array(count).fill(0);
+
+  board.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
 
   board.innerHTML = "";
   const max = Math.max(...fallbackValues) || 1;
@@ -112,25 +212,23 @@ function render() {
     return a + (b - a) * t;
   }
 
+  const scaleStops = getScaleStops(norm);
+
   function colorFor(t) {
     const x = Math.max(0, Math.min(1, t));
-    const stops = [
-      { t: 0.0, c: [10, 16, 32] },
-      { t: 0.25, c: [20, 52, 120] },
-      { t: 0.55, c: [40, 160, 255] },
-      { t: 0.78, c: [120, 235, 255] },
-      { t: 1.0, c: [255, 220, 120] }
-    ];
-    let s0 = stops[0];
-    let s1 = stops[stops.length - 1];
-    for (let i = 0; i < stops.length - 1; i++) {
-      if (x >= stops[i].t && x <= stops[i + 1].t) {
-        s0 = stops[i];
-        s1 = stops[i + 1];
+    let s0 = scaleStops[0];
+    let s1 = scaleStops[scaleStops.length - 1];
+    for (let i = 0; i < scaleStops.length - 1; i++) {
+      if (x >= scaleStops[i].t && x <= scaleStops[i + 1].t) {
+        s0 = scaleStops[i];
+        s1 = scaleStops[i + 1];
         break;
       }
     }
     const tt = (x - s0.t) / Math.max(1e-9, (s1.t - s0.t));
+    if (typeof s0.c === "string" || typeof s1.c === "string") {
+      return (tt < 0.5) ? String(s0.c) : String(s1.c);
+    }
     const r = Math.round(mix(s0.c[0], s1.c[0], tt));
     const g = Math.round(mix(s0.c[1], s1.c[1], tt));
     const b = Math.round(mix(s0.c[2], s1.c[2], tt));
@@ -171,11 +269,16 @@ document.addEventListener('DOMContentLoaded', () => {
   loadData();
 
   if (hasParent()) {
+    isVisible = false;
+    stopPolling();
     try {
       window.parent.postMessage({ type: 'heatmap:ready' }, '*');
     } catch {
       return;
     }
+  } else {
+    isVisible = true;
+    startPolling();
   }
 });
 
@@ -190,10 +293,12 @@ window.addEventListener('message', (e) => {
     setPhase(e.data && e.data.phase);
     return;
   }
+  if (t === 'heatmap:visibility') {
+    setVisible(!!(e.data && e.data.visible));
+    return;
+  }
   if (t === 'heatmap:show' || t === 'heatmap:rerender') {
     if (pendingRerenderTimer) clearTimeout(pendingRerenderTimer);
     pendingRerenderTimer = setTimeout(render, 80);
   }
 });
-
-setInterval(loadData, 2000);

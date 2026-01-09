@@ -61,7 +61,7 @@
     <section id="heatmap" class="tab pro-card pro-heatmap pro-card-garland">
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-heatmap"></div>
-      <iframe src="heatmap.html" class="embed-heatmap" title="NNUE Activity Heatmap" frameborder="0" loading="lazy"></iframe>
+      <div id="heatmapMount" class="embed-heatmap" aria-label="NNUE Activity Heatmap"></div>
     </section>
     <section id="tournaments" class="tab pro-card pro-card-garland">
       <div class="card-snowcap"></div>
@@ -76,8 +76,45 @@
       <div class="garland-decoration garland-logs"></div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
         <div class="log-toolbar">
-          <button id="demoToggle" class="demo-toggle" type="button">Enable Demo Mode</button>
-          <span id="demoBadge" class="demo-badge" aria-live="polite">Demo = OFF</span>
+          <div class="log-controls">
+            <label class="log-control">
+              <span>Level</span>
+              <select id="logLevel" class="log-select">
+                <option value="all" selected>All</option>
+                <option value="info">INFO</option>
+                <option value="warn">WARN</option>
+                <option value="error">ERROR</option>
+              </select>
+            </label>
+            <label class="log-control">
+              <span>Subsystem</span>
+              <select id="logSubsystem" class="log-select">
+                <option value="all" selected>All</option>
+                <option value="train">TRAIN</option>
+                <option value="eval">EVAL</option>
+                <option value="io">IO</option>
+                <option value="tournament">TOURNAMENT</option>
+              </select>
+            </label>
+            <label class="log-control">
+              <span>Window</span>
+              <select id="logWindow" class="log-select">
+                <option value="latest" selected>Latest</option>
+                <option value="lastN">Last N</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+            <label class="log-control" id="logNWrap">
+              <span>N</span>
+              <select id="logN" class="log-select">
+                <option value="200" selected>200</option>
+                <option value="500">500</option>
+                <option value="1000">1000</option>
+                <option value="2000">2000</option>
+              </select>
+            </label>
+          </div>
+          <button id="logPause" class="log-pause" type="button">Pause</button>
         </div>
         <div id="logOutput" class="log-output" role="log" aria-live="polite">Logs will appear here</div>
       </div>
