@@ -9,6 +9,25 @@ let zeroSizeRetries = 0;
 let pollTimer = 0;
 let isVisible = true;
 
+function getQueryParam(name) {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get(name) || "";
+  } catch {
+    return "";
+  }
+}
+
+const BACKEND_BASE = (() => {
+  const b = (getQueryParam("backend") || "").trim();
+  if (!b) return new URL(".", window.location.href);
+  try {
+    return new URL(b, window.location.href);
+  } catch {
+    return new URL(".", window.location.href);
+  }
+})();
+
 function unwrapEnvelope(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { api_version: null, payload: raw };
   if (typeof raw.api_version === "string" && ("payload" in raw)) return { api_version: raw.api_version, payload: raw.payload };
@@ -137,7 +156,9 @@ async function loadData() {
   try {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), 5000);
-    const res = await fetch("heatmap.json?ts=" + Date.now(), { signal: ctrl.signal });
+    const u = new URL("heatmap.json", BACKEND_BASE);
+    u.searchParams.set("ts", String(Date.now()));
+    const res = await fetch(u.toString(), { signal: ctrl.signal, cache: "no-store" });
     clearTimeout(timeout);
     if (!res.ok) {
       data = null;

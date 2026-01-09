@@ -3,6 +3,28 @@
   if (!app || !app.store || !app.actions) return;
 
   const { store, actions } = app;
+  const BUILD_ID = app.constants && app.constants.BUILD_ID ? String(app.constants.BUILD_ID) : "";
+
+  function getMetaContent(name) {
+    try {
+      const el = document.querySelector(`meta[name="${name}"]`);
+      return el && typeof el.content === "string" ? el.content : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function isAdminAllowed() {
+    try {
+      if (window.NNUE_CONFIG && window.NNUE_CONFIG.allowAdmin === true) return true;
+    } catch {
+      return false;
+    }
+    const m = (getMetaContent("nnue-allow-admin") || "").trim();
+    return m === "1" || m.toLowerCase() === "true";
+  }
+
+  const ADMIN_ALLOWED = isAdminAllowed();
 
   const MAX_LOG_DOM_NODES = 1200;
 
@@ -31,6 +53,16 @@
     return `${h}h ${m}m`;
   }
 
+  function formatLastUpdate(iso) {
+    if (typeof iso !== "string" || !iso) return "—";
+    const d = new Date(iso);
+    if (!isFinite(d.getTime())) return "—";
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
+  }
+
   function byId(id) {
     return document.getElementById(id);
   }
@@ -50,7 +82,16 @@
     if (!mount) return;
     if (mount.querySelector("iframe")) return;
     const iframe = document.createElement("iframe");
-    iframe.src = "heatmap.html";
+    const base = "heatmap.html";
+    const v = BUILD_ID ? `v=${encodeURIComponent(BUILD_ID)}` : "";
+    let src = v ? `${base}?${v}` : base;
+    try {
+      const cfg = window.NNUE_CONFIG && typeof window.NNUE_CONFIG.backendBase === "string" ? window.NNUE_CONFIG.backendBase : "";
+      if (cfg && cfg.trim()) src += (src.includes("?") ? "&" : "?") + `backend=${encodeURIComponent(cfg.trim())}`;
+    } catch {
+      return;
+    }
+    iframe.src = src;
     iframe.className = "embed-heatmap-iframe";
     iframe.title = "NNUE Activity Heatmap";
     iframe.setAttribute("frameborder", "0");
@@ -311,6 +352,19 @@
     ui.els = {
       navButtons: Array.from(document.querySelectorAll(".top-nav button")),
       tabs: Array.from(document.querySelectorAll(".tab")),
+      healthPill: byId("healthPill"),
+      healthConn: byId("healthConn"),
+      healthLast: byId("healthLast"),
+      healthWarn: byId("healthWarn"),
+      offlineBanner: byId("offlineBanner"),
+      offlineText: byId("offlineText"),
+      offlineRetry: byId("offlineRetry"),
+      adminToggle: byId("adminToggle"),
+      adminBadge: byId("adminBadge"),
+      adminPanel: byId("adminPanel"),
+      shutdownBtn: byId("shutdownBtn"),
+      exportBtn: byId("exportBtn"),
+      adminStatus: byId("adminStatus"),
       heatmapMount: byId("heatmapMount"),
       overlay: byId("explainOverlay"),
       explainTitle: byId("explainTitle"),
@@ -342,6 +396,85 @@
       logNWrap: byId("logNWrap"),
       logPause: byId("logPause")
     };
+  }
+
+  function renderHealth(state) {
+    const conn = state.meta && state.meta.connection ? state.meta.connection : null;
+    const warn = state.meta && state.meta.warnings ? state.meta.warnings : null;
+    const lastAny = state.meta && state.meta.lastSeen ? state.meta.lastSeen.any : null;
+
+    if (!ui.els.healthPill) return;
+
+    const status = conn && conn.state ? conn.state : "disconnected";
+    const transport = conn && conn.transport ? conn.transport : "poll";
+
+    ui.els.healthPill.classList.toggle("health-connected", status === "connected");
+    ui.els.healthPill.classList.toggle("health-reconnecting", status === "reconnecting");
+    ui.els.healthPill.classList.toggle("health-disconnected", status === "disconnected");
+    ui.els.healthPill.setAttribute("data-transport", transport);
+
+    if (ui.els.healthConn) {
+      const t = transport === "ws" ? "WS" : transport === "sse" ? "SSE" : "POLL";
+      ui.els.healthConn.textContent = status === "connected" ? `connected · ${t}` : status === "reconnecting" ? `reconnecting · ${t}` : `disconnected · ${t}`;
+    }
+    if (ui.els.healthLast) ui.els.healthLast.textContent = `last: ${formatLastUpdate(lastAny)}`;
+
+    if (ui.els.healthWarn) {
+      const bits = [];
+      if (warn && warn.stale) bits.push("stale");
+      if (warn && warn.dropped) bits.push("delayed");
+      if (warn && warn.stall) bits.push("stall");
+      if (warn && warn.schema) bits.push("schema");
+      ui.els.healthWarn.textContent = bits.length ? bits.join(" · ") : "";
+      ui.els.healthWarn.style.display = bits.length ? "" : "none";
+    }
+  }
+
+  function renderOffline(state) {
+    if (!ui.els.offlineBanner) return;
+    const off = state.meta && state.meta.offline ? state.meta.offline : null;
+    const active = !!(off && off.active);
+    ui.els.offlineBanner.style.display = active ? "" : "none";
+    if (!active) return;
+
+    const lastOk = off && off.lastOk ? off.lastOk : (state.meta && state.meta.lastSeen ? state.meta.lastSeen.any : null);
+    const t = formatLastUpdate(lastOk);
+    if (ui.els.offlineText) {
+      ui.els.offlineText.textContent = `Backend offline. last: ${t}`;
+    }
+  }
+
+  function renderAdmin(state) {
+    const enabled = ADMIN_ALLOWED && !!(state.ui && state.ui.admin && state.ui.admin.enabled);
+    document.body.classList.toggle("admin-mode", enabled);
+    if (ui.els.adminBadge) ui.els.adminBadge.style.display = enabled ? "" : "none";
+    if (ui.els.adminPanel) ui.els.adminPanel.style.display = enabled ? "" : "none";
+    if (ui.els.adminToggle) {
+      ui.els.adminToggle.textContent = ADMIN_ALLOWED ? (enabled ? "Disable Admin" : "Enable Admin") : "Read-only";
+      ui.els.adminToggle.disabled = !ADMIN_ALLOWED;
+    }
+
+    const off = !!(state.meta && state.meta.offline && state.meta.offline.active);
+    if (ui.els.shutdownBtn) ui.els.shutdownBtn.disabled = !enabled || off;
+    if (ui.els.exportBtn) ui.els.exportBtn.disabled = !enabled;
+  }
+
+  function setAdminStatus(msg) {
+    if (!ui.els.adminStatus) return;
+    ui.els.adminStatus.textContent = msg || "";
+  }
+
+  function downloadJson(filename, obj) {
+    const text = JSON.stringify(obj, null, 2);
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function bindUIEvents() {
@@ -395,6 +528,74 @@
       // Force a rebuild when resuming.
       ui.logsRender.key = null;
       ui.logsRender.filterKey = null;
+    });
+
+    bind(ui.els.offlineRetry, "click", (e) => {
+      e.preventDefault();
+      try {
+        if (app.dataService && typeof app.dataService.refreshOnce === "function") app.dataService.refreshOnce();
+      } catch {
+        return;
+      }
+    });
+
+    bind(ui.els.adminToggle, "click", (e) => {
+      e.preventDefault();
+      if (!ADMIN_ALLOWED) return;
+      const s = store.getState();
+      const enabled = !!(s.ui && s.ui.admin && s.ui.admin.enabled);
+      if (!enabled) {
+        const ok = window.confirm("Enable admin mode on this browser?\n\nAdmin can request shutdown and export snapshots.");
+        if (!ok) return;
+      }
+      setAdminStatus("");
+      actions.setAdminEnabled(!enabled);
+    });
+
+    bind(ui.els.shutdownBtn, "click", async (e) => {
+      e.preventDefault();
+      const ok = window.confirm("Request safe shutdown?\n\nThis only sends intent; backend decides.");
+      if (!ok) return;
+      setAdminStatus("Requesting shutdown…");
+      if (ui.els.shutdownBtn) ui.els.shutdownBtn.disabled = true;
+      try {
+        const res = await actions.requestSafeShutdown();
+        if (!res || !res.ok) {
+          setAdminStatus(res && res.error ? res.error : "Shutdown request failed.");
+        } else {
+          setAdminStatus("Shutdown requested.");
+        }
+      } finally {
+        const s = store.getState();
+        renderAdmin(s);
+      }
+    });
+
+    bind(ui.els.exportBtn, "click", async (e) => {
+      e.preventDefault();
+      setAdminStatus("Exporting snapshot…");
+      if (ui.els.exportBtn) ui.els.exportBtn.disabled = true;
+      try {
+        const res = await actions.exportSnapshot();
+        if (!res || !res.ok) {
+          setAdminStatus(res && res.error ? res.error : "Export failed.");
+          return;
+        }
+        const now = new Date();
+        const y = String(now.getFullYear());
+        const m = String(now.getMonth() + 1).padStart(2, "0");
+        const d = String(now.getDate()).padStart(2, "0");
+        const hh = String(now.getHours()).padStart(2, "0");
+        const mm = String(now.getMinutes()).padStart(2, "0");
+        const ss = String(now.getSeconds()).padStart(2, "0");
+        const src = res.source ? String(res.source) : "snapshot";
+        const file = `nnue_${src}_${y}${m}${d}_${hh}${mm}${ss}.json`;
+        downloadJson(file, res.data);
+        setAdminStatus("Snapshot downloaded.");
+      } finally {
+        const s = store.getState();
+        renderAdmin(s);
+      }
     });
   }
 
@@ -479,8 +680,8 @@
     if (ui.els.loss) ui.els.loss.textContent = (d && typeof d.loss === "number") ? fmtNumber(d.loss, 6) : "—";
     if (ui.els.lr) ui.els.lr.textContent = (d && typeof d.lr === "number") ? fmtNumber(d.lr, 6) : "—";
     if (ui.els.time) {
-      const start = state.meta && state.meta.sessionStart && state.meta.sessionStart.training;
-      ui.els.time.textContent = start ? formatDuration(Date.now() - start) : "—";
+      const ms = (d && typeof d.elapsed_ms === "number") ? d.elapsed_ms : (d && typeof d.elapsedMs === "number" ? d.elapsedMs : null);
+      ui.els.time.textContent = (ms != null) ? formatDuration(ms) : "—";
     }
 
     if (ui.els.statusText) {
@@ -681,6 +882,9 @@
   function renderAll(state, meta) {
     setNavActive(state.activeTab);
     if (!ui.tabTransition.inProgress) startTabTransition(state.activeTab);
+    renderHealth(state);
+    renderOffline(state);
+    renderAdmin(state);
     renderOverview(state);
     renderProgress(state);
     renderLogsControls(state);

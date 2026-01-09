@@ -6,12 +6,53 @@
   const TICK_TIMEOUT_MS = 5000;
   const STORAGE_KEY = "nnue_dashboard_state_v1";
   const API_VERSION = "1.0";
+  const BUILD_ID = "2026-01-10-001";
+  const ADMIN_STORAGE_KEY = "nnue_dashboard_admin_v1";
+  const STALE_THRESHOLD_MS = 12000;
+  const DROPPED_THRESHOLD_MS = 5500;
+  const STALL_THRESHOLD_MS = 180000;
+  const MAX_RECONNECT_DELAY_MS = 30000;
 
   let dataService = null;
 
   function nowIso() {
     return new Date().toISOString();
   }
+
+  function getMetaContent(name) {
+    try {
+      const el = document.querySelector(`meta[name="${name}"]`);
+      return el && typeof el.content === "string" ? el.content : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function isAdminAllowed() {
+    try {
+      if (window.NNUE_CONFIG && window.NNUE_CONFIG.allowAdmin === true) return true;
+    } catch {
+      return false;
+    }
+    const m = (getMetaContent("nnue-allow-admin") || "").trim();
+    return m === "1" || m.toLowerCase() === "true";
+  }
+
+  const ADMIN_ALLOWED = isAdminAllowed();
+
+  function getBackendBaseUrl() {
+    const fromGlobal = window.NNUE_CONFIG && typeof window.NNUE_CONFIG.backendBase === "string" ? window.NNUE_CONFIG.backendBase : "";
+    const fromMeta = getMetaContent("nnue-backend-base");
+    const base = (fromGlobal || fromMeta || "").trim();
+    if (!base) return new URL(".", window.location.href);
+    try {
+      return new URL(base, window.location.href);
+    } catch {
+      return new URL(".", window.location.href);
+    }
+  }
+
+  const BACKEND_BASE = getBackendBaseUrl();
 
   function unwrapEnvelope(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { api_version: null, payload: raw };
@@ -24,6 +65,11 @@
       return { api_version: v, payload: raw.payload };
     }
     return { api_version: null, payload: raw };
+  }
+
+  function extractApiVersion(raw) {
+    const env = unwrapEnvelope(raw);
+    return env && typeof env.api_version === "string" && env.api_version ? env.api_version : null;
   }
 
   function normalizeTrainingResponse(raw) {
@@ -58,7 +104,75 @@
 
     if (typeof out.elapsed_ms === "number" && out.elapsedMs == null) out.elapsedMs = out.elapsed_ms;
     if (typeof out.elapsedMs === "number" && out.elapsed_ms == null) out.elapsed_ms = out.elapsedMs;
+
+    if (out.elapsed_ms == null) {
+      const min = (
+        (typeof out.elapsed_minutes === "number") ? out.elapsed_minutes :
+        (typeof out.elapsedMinutes === "number") ? out.elapsedMinutes :
+        (typeof out.time_min === "number") ? out.time_min :
+        (typeof out.timeMin === "number") ? out.timeMin :
+        null
+      );
+      if (typeof min === "number" && isFinite(min) && min >= 0) {
+        out.elapsed_ms = Math.round(min * 60000);
+        out.elapsedMs = out.elapsed_ms;
+      }
+    }
+
+    if (typeof out.generated_at === "string" && out.generatedAt == null) out.generatedAt = out.generated_at;
+    if (typeof out.generatedAt === "string" && out.generated_at == null) out.generated_at = out.generatedAt;
+
+    if (typeof out.heartbeat_ts === "string" && out.heartbeatTs == null) out.heartbeatTs = out.heartbeat_ts;
+    if (typeof out.heartbeatTs === "string" && out.heartbeat_ts == null) out.heartbeat_ts = out.heartbeatTs;
+
+    if (typeof out.last_activity_ts === "string" && out.lastActivityTs == null) out.lastActivityTs = out.last_activity_ts;
+    if (typeof out.lastActivityTs === "string" && out.last_activity_ts == null) out.last_activity_ts = out.lastActivityTs;
+
     return out;
+  }
+
+  function parseIsoMs(iso) {
+    if (typeof iso !== "string" || !iso) return 0;
+    const t = new Date(iso).getTime();
+    return isFinite(t) ? t : 0;
+  }
+
+  function bestBackendTimestampMs(s) {
+    const t = s && s.data ? s.data.training : null;
+    if (t && typeof t === "object") {
+      const hb = parseIsoMs(t.heartbeat_ts || t.heartbeatTs);
+      const gen = parseIsoMs(t.generated_at || t.generatedAt);
+      const act = parseIsoMs(t.last_activity_ts || t.lastActivityTs);
+      return Math.max(hb, gen, act);
+    }
+    const iso = s && s.meta && s.meta.lastSeen ? s.meta.lastSeen.any : null;
+    return parseIsoMs(iso);
+  }
+
+  function inferTrainingRunning(t) {
+    if (!t || typeof t !== "object") return false;
+    if (typeof t.training_running === "boolean") return t.training_running;
+    if (typeof t.trainingRunning === "boolean") return t.trainingRunning;
+    if (typeof t.running === "boolean") return t.running;
+    const st = (
+      (typeof t.status_state === "string") ? t.status_state :
+      (typeof t.state === "string") ? t.state :
+      null
+    );
+    if (st) {
+      const s = String(st).toLowerCase();
+      if (s === "running" || s === "active" || s === "training") return true;
+      if (s === "idle" || s === "stopped" || s === "off") return false;
+    }
+    const txt = (
+      (typeof t.status_text === "string") ? t.status_text :
+      (typeof t.status === "string") ? t.status :
+      ""
+    );
+    const up = String(txt).toUpperCase();
+    if (up.includes("ACTIVE") || up.includes("TRAIN")) return true;
+    if (up.includes("IDLE") || up.includes("STOP") || up.includes("EXIT")) return false;
+    return false;
   }
 
   function normalizeEloResponse(raw) {
@@ -386,6 +500,9 @@
         open: false,
         version: null
       },
+      admin: {
+        enabled: false
+      },
       logs: {
         level: "all",
         subsystem: "all",
@@ -401,19 +518,58 @@
       }
     },
     meta: {
-      sessionStart: {
-        training: null
+      build: {
+        id: BUILD_ID
+      },
+      backend: {
+        api_version: null
+      },
+      offline: {
+        active: false,
+        lastOk: null
       },
       lastUpdated: {
         training: null,
         elo: null,
         tournaments: null,
         logs: null
+      },
+      lastSeen: {
+        any: null,
+        training: null,
+        elo: null,
+        tournaments: null,
+        logs: null
+      },
+      connection: {
+        state: "disconnected",
+        transport: "poll",
+        retries: 0,
+        lastChange: null
+      },
+      warnings: {
+        stale: false,
+        dropped: false,
+        stall: false,
+        schema: false
+      },
+      trainingWatch: {
+        lastGames: null,
+        lastGamesAt: null,
+        lastLogKey: null,
+        lastLogAt: null,
+        lastAdvanceAt: null
       }
     }
   };
 
   const persisted = loadPersistedState();
+  let persistedAdmin = false;
+  try {
+    persistedAdmin = ADMIN_ALLOWED && localStorage.getItem(ADMIN_STORAGE_KEY) === "1";
+  } catch {
+    persistedAdmin = false;
+  }
   const persistedActiveTab = persisted && persisted.activeTab ? persisted.activeTab : initialState.activeTab;
   const persistedOpened = shallowMerge(initialState.ui.opened, persisted && persisted.ui && persisted.ui.opened ? persisted.ui.opened : {});
   const openedWithActive = shallowMerge(persistedOpened, { [persistedActiveTab]: true });
@@ -427,11 +583,9 @@
     },
     ui: {
       logs: normalizeLogUi(persisted && persisted.ui && persisted.ui.logs),
-      opened: openedWithActive
-    },
-    meta: {
-      sessionStart: {
-        training: persisted && persisted.meta && persisted.meta.sessionStart ? persisted.meta.sessionStart.training : null
+      opened: openedWithActive,
+      admin: {
+        enabled: persistedAdmin
       }
     }
   });
@@ -489,6 +643,70 @@
       }, { type: "ui/logs" });
     },
 
+    setAdminEnabled(enabled) {
+      const v = ADMIN_ALLOWED ? !!enabled : false;
+      try {
+        localStorage.setItem(ADMIN_STORAGE_KEY, v ? "1" : "0");
+      } catch {
+        return;
+      }
+      store.update(s => {
+        const prev = s.ui && s.ui.admin ? s.ui.admin : initialState.ui.admin;
+        if (!!prev.enabled === v) return s;
+        return shallowMerge(s, { ui: { admin: { enabled: v } } });
+      }, { type: "ui/admin" });
+    },
+
+    async requestSafeShutdown() {
+      const s = store.getState();
+      const admin = !!(s.ui && s.ui.admin && s.ui.admin.enabled);
+      if (!admin) return { ok: false, status: 0, error: "Admin mode disabled." };
+
+      const path = getConfigString("shutdownPath") || getMetaContent("nnue-shutdown-path") || "control/shutdown";
+      const body = {
+        requested_at: nowIso(),
+        build_id: BUILD_ID,
+        api_version: API_VERSION
+      };
+      const res = await postJSON(path, body, { timeoutMs: 8000 });
+      if (!res.ok) return { ok: false, status: res.status, error: "Shutdown request failed." };
+      return { ok: true, status: res.status, data: res.data };
+    },
+
+    async exportSnapshot() {
+      const s = store.getState();
+      const admin = !!(s.ui && s.ui.admin && s.ui.admin.enabled);
+      if (!admin) return { ok: false, status: 0, error: "Admin mode disabled." };
+
+      const path = getConfigString("snapshotPath") || getMetaContent("nnue-snapshot-path") || "control/snapshot";
+      const remote = await fetchJSON(path, { timeoutMs: 12000 });
+      if (remote.ok && remote.data != null) {
+        return { ok: true, status: remote.status, data: remote.data, source: "backend" };
+      }
+
+      const snap = {
+        generated_at: nowIso(),
+        build_id: BUILD_ID,
+        api_version: API_VERSION,
+        backend_base: BACKEND_BASE.toString(),
+        config: (window.NNUE_CONFIG && typeof window.NNUE_CONFIG === "object") ? window.NNUE_CONFIG : null,
+        data: {
+          training: s.data ? s.data.training : null,
+          progress: s.data ? s.data.progress : null,
+          elo: s.data ? s.data.elo : null,
+          tournaments: s.data && Array.isArray(s.data.tournaments) ? s.data.tournaments : [],
+          logs: Array.isArray(s.data && s.data.logs) ? s.data.logs.slice(-PERSIST_MAX_LOG_LINES) : []
+        },
+        meta: {
+          lastUpdated: s.meta ? s.meta.lastUpdated : null,
+          lastSeen: s.meta ? s.meta.lastSeen : null,
+          connection: s.meta ? s.meta.connection : null,
+          warnings: s.meta ? s.meta.warnings : null
+        }
+      };
+      return { ok: true, status: 200, data: snap, source: "frontend" };
+    },
+
     _setLoading(key, value) {
       store.update(s => shallowMerge(s, { loading: { [key]: !!value } }), {
         type: "data/loading",
@@ -503,12 +721,55 @@
       });
     },
 
-    receiveTraining(payload) {
+    _setConnection(patch) {
       store.update(s => {
-        const norm = normalizeTrainingResponse(payload);
-        const sessionStart = (s.meta && s.meta.sessionStart && s.meta.sessionStart.training) ? s.meta.sessionStart.training : null;
-        const nextSessionStart = sessionStart || Date.now();
+        const prev = s.meta && s.meta.connection ? s.meta.connection : initialState.meta.connection;
+        const next = shallowMerge(prev, patch || {});
+        if (safeJsonStringify(prev) === safeJsonStringify(next)) return s;
+        return shallowMerge(s, { meta: { connection: next } });
+      }, { type: "meta/connection" });
+    },
 
+    _setWarnings(patch) {
+      store.update(s => {
+        const prev = s.meta && s.meta.warnings ? s.meta.warnings : initialState.meta.warnings;
+        const next = shallowMerge(prev, patch || {});
+        if (safeJsonStringify(prev) === safeJsonStringify(next)) return s;
+        return shallowMerge(s, { meta: { warnings: next } });
+      }, { type: "meta/warnings" });
+    },
+
+    _setOffline(patch) {
+      store.update(s => {
+        const prev = s.meta && s.meta.offline ? s.meta.offline : initialState.meta.offline;
+        const next = shallowMerge(prev, patch || {});
+        if (safeJsonStringify(prev) === safeJsonStringify(next)) return s;
+        return shallowMerge(s, { meta: { offline: next } });
+      }, { type: "meta/offline" });
+    },
+
+    _setBackend(patch) {
+      store.update(s => {
+        const prev = s.meta && s.meta.backend ? s.meta.backend : initialState.meta.backend;
+        const next = shallowMerge(prev, patch || {});
+        if (safeJsonStringify(prev) === safeJsonStringify(next)) return s;
+        return shallowMerge(s, { meta: { backend: next } });
+      }, { type: "meta/backend" });
+    },
+
+    _markSeen(key, iso) {
+      const seenIso = (typeof iso === "string" && iso) ? iso : nowIso();
+      store.update(s => {
+        const prev = s.meta && s.meta.lastSeen ? s.meta.lastSeen : initialState.meta.lastSeen;
+        const next = shallowMerge(prev, { any: seenIso, [key]: seenIso });
+        return shallowMerge(s, { meta: { lastSeen: next } });
+      }, { type: "meta/seen", key });
+    },
+
+    receiveTraining(payload) {
+      const norm = normalizeTrainingResponse(payload);
+      const apiV = extractApiVersion(payload);
+      store.update(s => {
         let progress = (s.data && s.data.progress) ? s.data.progress : { percent: null, text: null };
         if (norm && typeof norm.progress_percent === "number") {
           const p = norm.progress_percent;
@@ -525,14 +786,33 @@
           if (total != null) progress = { percent: Math.max(0, Math.min(1, norm.games / total)), text: null };
         }
 
+        const prevWatch = s.meta && s.meta.trainingWatch ? s.meta.trainingWatch : initialState.meta.trainingWatch;
+        const nextWatch = { ...prevWatch };
+
+        const prevGames = prevWatch.lastGames;
+        const nextGames = (norm && typeof norm.games === "number") ? norm.games : prevGames;
+        if (typeof nextGames === "number") {
+          if (prevGames == null || nextGames > prevGames) {
+            nextWatch.lastGames = nextGames;
+            nextWatch.lastGamesAt = Date.now();
+            nextWatch.lastAdvanceAt = Date.now();
+          } else if (nextWatch.lastGames == null) {
+            nextWatch.lastGames = nextGames;
+            nextWatch.lastGamesAt = Date.now();
+          }
+        }
+
         return shallowMerge(s, {
           data: { training: norm, progress },
           meta: {
-            sessionStart: { training: nextSessionStart },
-            lastUpdated: { training: nowIso() }
+            lastUpdated: { training: nowIso() },
+            trainingWatch: nextWatch
           }
         });
       }, { type: "data/training" });
+      if (apiV) actions._setBackend({ api_version: apiV });
+      const iso = norm && (norm.heartbeat_ts || norm.heartbeatTs || norm.generated_at || norm.generatedAt) ? (norm.heartbeat_ts || norm.heartbeatTs || norm.generated_at || norm.generatedAt) : null;
+      actions._markSeen("training", iso);
     },
 
     receiveElo(payload) {
@@ -561,6 +841,8 @@
           meta: { lastUpdated: { elo: nowIso() } }
         });
       }, { type: "data/elo" });
+      const iso = (payload && payload.generated_at) ? payload.generated_at : (payload && payload.generated) ? payload.generated : null;
+      actions._markSeen("elo", iso);
     },
 
     receiveOptional(key, payload) {
@@ -570,6 +852,7 @@
           meta: { lastUpdated: { [key]: nowIso() } }
         });
       }, { type: "data/optional", key });
+      actions._markSeen(key, (payload && payload.generated_at) ? payload.generated_at : (payload && payload.generated) ? payload.generated : null);
     },
 
     receiveLogsSnapshot(lines) {
@@ -579,11 +862,26 @@
         const prev = Array.isArray(s.data && s.data.logs) ? s.data.logs : [];
         const diff = logsSnapshotDiff(prev, snap);
         if (diff.mode === "noop") return s;
+
+        const prevWatch = s.meta && s.meta.trainingWatch ? s.meta.trainingWatch : initialState.meta.trainingWatch;
+        const nextWatch = { ...prevWatch };
+        if (diff.appended && diff.appended.length) {
+          const last = diff.appended[diff.appended.length - 1];
+          const k = logEntryKey(last);
+          nextWatch.lastLogKey = k;
+          nextWatch.lastLogAt = Date.now();
+          nextWatch.lastAdvanceAt = Date.now();
+        } else if (nextWatch.lastLogKey == null && snap.length) {
+          nextWatch.lastLogKey = logEntryKey(snap[snap.length - 1]);
+          nextWatch.lastLogAt = Date.now();
+        }
+
         return shallowMerge(s, {
           data: { logs: diff.next },
-          meta: { lastUpdated: { logs: nowIso() } }
+          meta: { lastUpdated: { logs: nowIso() }, trainingWatch: nextWatch }
         });
       }, { type: "data/logsSnapshot" });
+      actions._markSeen("logs", null);
     },
 
     setProgress(progress) {
@@ -609,11 +907,6 @@
       ui: {
         logs: s.ui && s.ui.logs ? s.ui.logs : initialState.ui.logs,
         opened: s.ui && s.ui.opened ? s.ui.opened : initialState.ui.opened
-      },
-      meta: {
-        sessionStart: {
-          training: s.meta && s.meta.sessionStart ? s.meta.sessionStart.training : null
-        }
       }
     };
   }
@@ -670,7 +963,9 @@
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await fetch(path + "?t=" + Date.now(), { signal: ctrl.signal });
+      const u = new URL(path, BACKEND_BASE);
+      u.searchParams.set("t", String(Date.now()));
+      const res = await fetch(u.toString(), { signal: ctrl.signal, cache: "no-store" });
       if (!res.ok) return { ok: false, status: res.status, data: null };
       const json = await res.json();
       return { ok: true, status: res.status, data: json };
@@ -681,14 +976,309 @@
     }
   }
 
+  async function postJSON(path, body, opts) {
+    const timeoutMs = (opts && opts.timeoutMs) ? opts.timeoutMs : TICK_TIMEOUT_MS;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const u = new URL(path, BACKEND_BASE);
+      const res = await fetch(u.toString(), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: safeJsonStringify(body || {}),
+        signal: ctrl.signal,
+        cache: "no-store"
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      return { ok: res.ok, status: res.status, data };
+    } catch {
+      return { ok: false, status: 0, data: null };
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  function getConfigString(key) {
+    try {
+      const v = window.NNUE_CONFIG && typeof window.NNUE_CONFIG[key] === "string" ? window.NNUE_CONFIG[key] : "";
+      return (v || "").trim();
+    } catch {
+      return "";
+    }
+  }
+
   function createDataService() {
     let timer = null;
     let inFlight = false;
+
+    let ws = null;
+    let es = null;
+    let reconnectTimer = null;
+    let healthTimer = null;
+    let connectTimer = null;
+    let transport = "poll";
+    let transportMode = "poll";
+    let retries = 0;
+    let lastOkAt = 0;
+    let connectedOnce = false;
 
     let missing = {
       tournaments: 0,
       logs: 0
     };
+
+    function stopRealtime() {
+      try {
+        if (ws) {
+          ws.onopen = null;
+          ws.onclose = null;
+          ws.onerror = null;
+          ws.onmessage = null;
+          ws.close();
+        }
+      } catch {
+        return;
+      } finally {
+        ws = null;
+      }
+      try {
+        if (es) es.close();
+      } catch {
+        return;
+      } finally {
+        es = null;
+      }
+      if (connectTimer) {
+        clearTimeout(connectTimer);
+        connectTimer = null;
+      }
+    }
+
+    function setTransportState(state) {
+      const next = {
+        state,
+        transport: transportMode,
+        retries,
+        lastChange: nowIso()
+      };
+      actions._setConnection(next);
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return;
+      retries = Math.min(20, retries + 1);
+      const base = Math.min(MAX_RECONNECT_DELAY_MS, 800 * Math.pow(2, Math.min(6, retries)));
+      const jitter = Math.floor(Math.random() * 250);
+      const delay = base + jitter;
+      setTransportState("reconnecting");
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        startPreferredTransport();
+      }, delay);
+    }
+
+    function ensurePollingRunning() {
+      if (timer) return;
+      refreshOnce();
+      timer = setInterval(refreshOnce, REFRESH_MS);
+    }
+
+    function stopPolling() {
+      if (!timer) return;
+      clearInterval(timer);
+      timer = null;
+    }
+
+    function handleRealtimeMessage(data) {
+      if (!data) return;
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        if (data.type === "training") actions.receiveTraining(data.payload);
+        else if (data.type === "elo") actions.receiveElo(data.payload);
+        else if (data.type === "logs") actions.receiveLogsSnapshot(normalizeLogsResponse(data.payload));
+        else if (data.type === "tournaments") actions.receiveOptional("tournaments", normalizeTournamentsResponse(data.payload));
+        else if (data.type === "snapshot" && data.payload && typeof data.payload === "object") {
+          const p = data.payload;
+          if (p.training != null) actions.receiveTraining(p.training);
+          if (p.elo != null) actions.receiveElo(p.elo);
+          if (p.logs != null) actions.receiveLogsSnapshot(normalizeLogsResponse(p.logs));
+          if (p.tournaments != null) actions.receiveOptional("tournaments", normalizeTournamentsResponse(p.tournaments));
+        }
+      }
+    }
+
+    function tryWebSocket() {
+      if (!("WebSocket" in window)) return false;
+      try {
+        const u = new URL("ws", BACKEND_BASE);
+        u.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(u.toString());
+        transportMode = "ws";
+        setTransportState("reconnecting");
+
+        if (connectTimer) clearTimeout(connectTimer);
+        connectTimer = setTimeout(() => {
+          connectTimer = null;
+          if (!connectedOnce) {
+            transport = "sse";
+            stopRealtime();
+            ensurePollingRunning();
+            startPreferredTransport();
+          }
+        }, 3000);
+
+        ws.onopen = () => {
+          retries = 0;
+          connectedOnce = true;
+          setTransportState("connected");
+          stopPolling();
+          if (connectTimer) {
+            clearTimeout(connectTimer);
+            connectTimer = null;
+          }
+        };
+        ws.onerror = () => {
+          return;
+        };
+        ws.onclose = () => {
+          const wasConnected = connectedOnce;
+          stopRealtime();
+          ensurePollingRunning();
+          if (!wasConnected) transport = "sse";
+          scheduleReconnect();
+        };
+        ws.onmessage = (ev) => {
+          lastOkAt = Date.now();
+          try {
+            const parsed = JSON.parse(ev.data);
+            handleRealtimeMessage(parsed);
+          } catch {
+            return;
+          }
+        };
+        return true;
+      } catch {
+        stopRealtime();
+        return false;
+      }
+    }
+
+    function trySSE() {
+      if (!("EventSource" in window)) return false;
+      try {
+        const u = new URL("events", BACKEND_BASE);
+        es = new EventSource(u.toString());
+        transportMode = "sse";
+        setTransportState("reconnecting");
+
+        if (connectTimer) clearTimeout(connectTimer);
+        connectTimer = setTimeout(() => {
+          connectTimer = null;
+          if (!connectedOnce) {
+            transport = "poll";
+            stopRealtime();
+            ensurePollingRunning();
+            startPreferredTransport();
+          }
+        }, 3000);
+
+        es.onopen = () => {
+          retries = 0;
+          connectedOnce = true;
+          setTransportState("connected");
+          stopPolling();
+          if (connectTimer) {
+            clearTimeout(connectTimer);
+            connectTimer = null;
+          }
+        };
+        es.onerror = () => {
+          try {
+            if (es && es.readyState === 2) {
+              stopRealtime();
+              ensurePollingRunning();
+              if (!connectedOnce) transport = "poll";
+              scheduleReconnect();
+            }
+          } catch {
+            stopRealtime();
+            ensurePollingRunning();
+            if (!connectedOnce) transport = "poll";
+            scheduleReconnect();
+          }
+        };
+        es.onmessage = (ev) => {
+          lastOkAt = Date.now();
+          try {
+            const parsed = JSON.parse(ev.data);
+            handleRealtimeMessage(parsed);
+          } catch {
+            return;
+          }
+        };
+        return true;
+      } catch {
+        stopRealtime();
+        return false;
+      }
+    }
+
+    function startPreferredTransport() {
+      stopRealtime();
+      if (transport === "ws") {
+        if (tryWebSocket()) return;
+        transport = "sse";
+      }
+      if (transport === "sse") {
+        if (trySSE()) return;
+        transport = "poll";
+      }
+      transportMode = "poll";
+      setTransportState("connected");
+      connectedOnce = true;
+      ensurePollingRunning();
+    }
+
+    function evalHealth() {
+      const s = store.getState();
+      const lastAny = bestBackendTimestampMs(s);
+      const now = Date.now();
+
+      const stale = lastAny > 0 ? (now - lastAny > STALE_THRESHOLD_MS) : true;
+      const dropped = lastAny > 0 ? (now - lastAny > DROPPED_THRESHOLD_MS) : false;
+
+      const t = s.data && s.data.training;
+      const running = inferTrainingRunning(t);
+      const watch = s.meta && s.meta.trainingWatch ? s.meta.trainingWatch : initialState.meta.trainingWatch;
+      const lastAdvanceAt = (typeof watch.lastAdvanceAt === "number") ? watch.lastAdvanceAt : 0;
+      const stall = running && lastAdvanceAt > 0 ? (now - lastAdvanceAt > STALL_THRESHOLD_MS) : false;
+
+      const backendV = s.meta && s.meta.backend ? s.meta.backend.api_version : null;
+      const schema = backendV && backendV !== API_VERSION;
+
+      actions._setWarnings({ stale, dropped, stall, schema });
+
+      const offline = lastOkAt > 0 ? (now - lastOkAt > STALE_THRESHOLD_MS) : true;
+      const offlineLast = lastOkAt > 0 ? new Date(lastOkAt).toISOString() : (s.meta && s.meta.offline ? s.meta.offline.lastOk : null);
+      actions._setOffline({ active: !!offline, lastOk: offlineLast });
+
+      const conn = s.meta && s.meta.connection ? s.meta.connection : initialState.meta.connection;
+      if (transportMode === "poll") {
+        if (lastOkAt <= 0) {
+          if (conn.state !== "reconnecting") actions._setConnection({ state: "reconnecting", transport: "poll" });
+        } else if (now - lastOkAt > STALE_THRESHOLD_MS) {
+          if (conn.state !== "reconnecting") actions._setConnection({ state: "reconnecting", transport: "poll" });
+        } else {
+          if (conn.state !== "connected") actions._setConnection({ state: "connected", transport: "poll" });
+        }
+      }
+    }
 
     async function refreshOnce() {
       if (inFlight) return;
@@ -719,16 +1309,24 @@
         const eloRes = wantElo ? res[wantLogs ? 2 : 1] : { ok: false, status: 0, data: null };
         const tournamentsRes = wantTournaments ? res[(wantLogs ? 1 : 0) + (wantElo ? 2 : 1)] : { ok: false, status: 0, data: null };
 
-        if (trainingRes.ok) actions.receiveTraining(trainingRes.data);
-        else if (trainingRes.status !== 404) actions._setError("training", "Training data unavailable.");
+        if (trainingRes.ok) {
+          lastOkAt = Date.now();
+          actions.receiveTraining(trainingRes.data);
+          actions._setOffline({ active: false, lastOk: nowIso() });
+        } else if (trainingRes.status !== 404) {
+          actions._setError("training", "Training data unavailable.");
+        }
 
         if (wantElo) {
-          if (eloRes.ok) actions.receiveElo(eloRes.data);
-          else if (eloRes.status !== 404 && eloRes.status !== 0) actions._setError("elo", "ELO data unavailable.");
+          if (eloRes.ok) {
+            lastOkAt = Date.now();
+            actions.receiveElo(eloRes.data);
+          } else if (eloRes.status !== 404 && eloRes.status !== 0) actions._setError("elo", "ELO data unavailable.");
         }
 
         if (wantTournaments) {
           if (tournamentsRes.ok) {
+            lastOkAt = Date.now();
             missing.tournaments = 0;
             actions.receiveOptional("tournaments", normalizeTournamentsResponse(tournamentsRes.data));
           } else if (tournamentsRes.status === 404) {
@@ -740,6 +1338,7 @@
 
         if (wantLogs) {
           if (logsRes.ok) {
+            lastOkAt = Date.now();
             missing.logs = 0;
             const lines = normalizeLogsResponse(logsRes.data);
             actions.receiveLogsSnapshot(lines.slice(-MAX_LOG_LINES));
@@ -759,15 +1358,30 @@
     }
 
     function start() {
-      if (timer) return;
-      refreshOnce();
-      timer = setInterval(refreshOnce, REFRESH_MS);
+      if (timer || healthTimer) return;
+      transport = "ws";
+      transportMode = "poll";
+      retries = 0;
+      lastOkAt = 0;
+      connectedOnce = false;
+      startPreferredTransport();
+
+      ensurePollingRunning();
+
+      if (!healthTimer) healthTimer = setInterval(evalHealth, 1000);
     }
 
     function stop() {
-      if (!timer) return;
-      clearInterval(timer);
-      timer = null;
+      stopPolling();
+      if (healthTimer) {
+        clearInterval(healthTimer);
+        healthTimer = null;
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      stopRealtime();
     }
 
     return { start, stop, refreshOnce };
@@ -781,7 +1395,8 @@
     dataService,
     constants: {
       REFRESH_MS,
-      API_VERSION
+      API_VERSION,
+      BUILD_ID
     }
   };
 

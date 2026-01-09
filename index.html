@@ -4,14 +4,33 @@
   <meta charset="UTF-8" />
   <title>NNUE Training Dashboard 🎄</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="style.css" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="nnue-build" content="2026-01-10-001" />
+  <meta name="nnue-backend-base" content="" />
+  <meta name="nnue-allow-admin" content="0" />
+  <link rel="stylesheet" href="style.css?v=2026-01-10-001" />
   <link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Montserrat:wght@300;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <canvas id="snow"></canvas>
+  <div id="offlineBanner" class="offline-banner" style="display:none" role="status" aria-live="polite">
+    <span id="offlineText" class="offline-text">Backend offline.</span>
+    <button id="offlineRetry" class="offline-btn" type="button">Retry</button>
+  </div>
   <header class="header subtle-snow-panel">
     <h1 class="title glow">NNUE Training Dashboard</h1>
     <p class="subtitle">Auto-League · SPRT · ELO · Regression Guard</p>
+    <div id="healthPill" class="health-pill health-disconnected" aria-live="polite">
+      <span id="healthConn" class="health-conn">disconnected · POLL</span>
+      <span id="healthLast" class="health-last">last: —</span>
+      <span id="healthWarn" class="health-warn" style="display:none"></span>
+    </div>
+    <div class="mode-row">
+      <button id="adminToggle" class="admin-toggle" type="button">Enable Admin</button>
+      <span id="adminBadge" class="admin-badge" style="display:none">ADMIN</span>
+    </div>
   </header>
   <nav class="top-nav pro-nav">
     <button class="active nav-btn" data-tab="overview">Overview</button>
@@ -44,6 +63,14 @@
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
         <h2>⚠️ Regression Watch</h2>
         <div id="regressions" class="regression-list"></div>
+      </div>
+      <div id="adminPanel" class="card pro-card pro-card-garland admin-panel" style="display:none">
+        <h2>🛑 Admin Control</h2>
+        <div class="admin-actions">
+          <button id="shutdownBtn" class="admin-btn admin-danger" type="button">Request Safe Shutdown</button>
+          <button id="exportBtn" class="admin-btn" type="button">Export Snapshot</button>
+        </div>
+        <div id="adminStatus" class="admin-status" aria-live="polite"></div>
       </div>
     </section>
     <section id="elo" class="tab pro-card pro-card-garland">
@@ -141,7 +168,7 @@
       <div class="explain-note" id="explainNote"></div>
     </div>
   </div>
-  <script src="app.js"></script>
-  <script src="js/main.js"></script>
+  <script src="app.js?v=2026-01-10-001"></script>
+  <script src="js/main.js?v=2026-01-10-001"></script>
 </body>
 </html>
