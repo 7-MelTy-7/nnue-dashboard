@@ -1,0 +1,158 @@
+{
+  "generated": "2026-01-09T05:43:58.345436Z",
+  "best_elo": 450.63,
+  "best_versions": [
+    "v048_multitarget.npz"
+  ],
+  "top5": [
+    {
+      "version": "v048_multitarget.npz",
+      "elo": 450.63,
+      "games": 100,
+      "confidence": [
+        391.83,
+        509.43
+      ],
+      "status": "neutral",
+      "sprt": "UNTESTED"
+    },
+    {
+      "version": "v047_multitarget.npz",
+      "elo": 230.63,
+      "games": 100,
+      "confidence": [
+        171.83,
+        289.43
+      ],
+      "status": "regressed",
+      "sprt": "CONTINUE"
+    },
+    {
+      "version": "v046_multitarget.npz",
+      "elo": 51.36,
+      "games": 100,
+      "confidence": [
+        -7.44,
+        110.16
+      ],
+      "status": "regressed",
+      "sprt": "CONTINUE"
+    },
+    {
+      "version": "v045_multitarget.npz",
+      "elo": -113.46,
+      "games": 100,
+      "confidence": [
+        -172.26,
+        -54.66
+      ],
+      "status": "regressed",
+      "sprt": "CONTINUE"
+    },
+    {
+      "version": "v044_multitarget.npz",
+      "elo": -245.16,
+      "games": 100,
+      "confidence": [
+        -303.96,
+        -186.36
+      ],
+      "status": "rejected",
+      "sprt": "REJECT"
+    }
+  ],
+  "versions": {
+    "v043_multitarget.npz": {
+      "elo": -374.0,
+      "games": 100,
+      "confidence": [
+        -432.8,
+        -315.2
+      ],
+      "status": "rejected",
+      "sprt": "REJECT"
+    },
+    "v044_multitarget.npz": {
+      "elo": -245.16,
+      "games": 100,
+      "confidence": [
+        -303.96,
+        -186.36
+      ],
+      "status": "rejected",
+      "sprt": "REJECT"
+    },
+    "v045_multitarget.npz": {
+      "elo": -113.46,
+      "games": 100,
+      "confidence": [
+        -172.26,
+        -54.66
+      ],
+      "status": "regressed",
+      "sprt": "CONTINUE"
+    },
+    "v046_multitarget.npz": {
+      "elo": 51.36,
+      "games": 100,
+      "confidence": [
+        -7.44,
+        110.16
+      ],
+      "status": "regressed",
+      "sprt": "CONTINUE"
+    },
+    "v047_multitarget.npz": {
+      "elo": 230.63,
+      "games": 100,
+      "confidence": [
+        171.83,
+        289.43
+      ],
+      "status": "regressed",
+      "sprt": "CONTINUE"
+    },
+    "v048_multitarget.npz": {
+      "elo": 450.63,
+      "games": 100,
+      "confidence": [
+        391.83,
+        509.43
+      ],
+      "status": "neutral",
+      "sprt": "UNTESTED"
+    }
+  },
+  "history": [
+    {
+      "version": "v043_multitarget.npz",
+      "elo": -374.0,
+      "timestamp": "2026-01-09T05:43:58.345379Z"
+    },
+    {
+      "version": "v044_multitarget.npz",
+      "elo": -245.16,
+      "timestamp": "2026-01-09T05:43:58.345403Z"
+    },
+    {
+      "version": "v045_multitarget.npz",
+      "elo": -113.46,
+      "timestamp": "2026-01-09T05:43:58.345410Z"
+    },
+    {
+      "version": "v046_multitarget.npz",
+      "elo": 51.36,
+      "timestamp": "2026-01-09T05:43:58.345415Z"
+    },
+    {
+      "version": "v047_multitarget.npz",
+      "elo": 230.63,
+      "timestamp": "2026-01-09T05:43:58.345420Z"
+    },
+    {
+      "version": "v048_multitarget.npz",
+      "elo": 450.63,
+      "timestamp": "2026-01-09T05:43:58.345424Z"
+    }
+  ]
+}

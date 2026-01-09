@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NNUE Training Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="title">NNUE Training Dashboard</div>
+  <div id="status" class="status idle">⚫ IDLE</div>
+</header>
+
+<nav>
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="elo">ELO</button>
+  <button data-tab="heatmap">Heatmap</button>
+  <button data-tab="tournaments">Tournaments</button>
+  <button data-tab="logs">Logs</button>
+</nav>
+
+<main>
+
+<section id="overview" class="tab active">
+  <div class="stats">
+    <div class="card"><span>Games</span><b id="games">—</b></div>
+    <div class="card"><span>Loss</span><b id="loss">—</b></div>
+    <div class="card"><span>LR</span><b id="lr">—</b></div>
+    <div class="card"><span>Time</span><b id="time">—</b></div>
+  </div>
+
+  <div class="controls">
+    <button id="pause" class="warn">⏸ Pause</button>
+    <button id="resume" class="ok">▶ Resume</button>
+  </div>
+
+  <canvas id="lossChart"></canvas>
+</section>
+
+<section id="elo" class="tab">
+  <canvas id="eloChart"></canvas>
+</section>
+
+<section id="heatmap" class="tab">
+  <canvas id="heatmapCanvas"></canvas>
+</section>
+
+<section id="tournaments" class="tab">
+  <div id="tournamentList">Waiting for tournaments…</div>
+</section>
+
+<section id="logs" class="tab">
+  <pre id="logsBox">Waiting for logs…</pre>
+</section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
