@@ -34,6 +34,8 @@
   </header>
   <nav class="top-nav pro-nav">
     <button class="active nav-btn" data-tab="overview">Overview</button>
+    <button class="nav-btn" data-tab="quality">Quality</button>
+    <button class="nav-btn" data-tab="stability">Stability</button>
     <button class="nav-btn" data-tab="elo">ELO</button>
     <button class="nav-btn" data-tab="heatmap">Heatmap</button>
     <button class="nav-btn" data-tab="tournaments">Tournaments</button>
@@ -64,6 +66,18 @@
         <h2>⚠️ Regression Watch</h2>
         <div id="regressions" class="regression-list"></div>
       </div>
+
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>🧭 Signals</h2>
+        <div class="kv-grid">
+          <div class="kv-item"><b>SPRT gate</b><span id="sigSprtGate" class="pill">—</span></div>
+          <div class="kv-item"><b>Regression</b><span id="sigRegression" class="pill">—</span></div>
+          <div class="kv-item"><b>Data drift</b><span id="sigDrift" class="pill">—</span></div>
+          <div class="kv-item"><b>Curriculum</b><span id="sigCurriculum" class="pill">—</span></div>
+          <div class="kv-item"><b>LR reason</b><span id="sigLrReason" class="pill">—</span></div>
+        </div>
+        <div id="sigNote" class="panel-note">—</div>
+      </div>
       <div id="adminPanel" class="card pro-card pro-card-garland admin-panel" style="display:none">
         <h2>🛑 Admin Control</h2>
         <div class="admin-actions">
@@ -71,6 +85,33 @@
           <button id="exportBtn" class="admin-btn" type="button">Export Snapshot</button>
         </div>
         <div id="adminStatus" class="admin-status" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section id="quality" class="tab pro-card pro-card-garland">
+      <div class="card-snowcap"></div>
+      <div class="garland-decoration garland-overview"></div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>🧪 Data Quality</h2>
+        <div class="panel-note">Dedup · terminal filter · phase balance · distribution drift</div>
+        <div id="qualitySummary" class="kv-grid"></div>
+      </div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>📦 Distribution</h2>
+        <div class="scroll-panel" id="qualityDist"></div>
+      </div>
+    </section>
+
+    <section id="stability" class="tab pro-card pro-card-garland">
+      <div class="card-snowcap"></div>
+      <div class="garland-decoration garland-elo"></div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>🧠 Training Stability</h2>
+        <div id="stabilitySummary" class="kv-grid"></div>
+      </div>
+      <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
+        <h2>🛡 Evaluation Signals</h2>
+        <div class="scroll-panel" id="evalSignals"></div>
       </div>
     </section>
     <section id="elo" class="tab pro-card pro-card-garland">

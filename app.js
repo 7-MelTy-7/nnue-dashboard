@@ -479,14 +479,18 @@
       elo: false,
       heatmap: false,
       tournaments: false,
-      logs: false
+      logs: false,
+      quality: false,
+      stability: false
     },
     error: {
       training: null,
       elo: null,
       heatmap: null,
       tournaments: null,
-      logs: null
+      logs: null,
+      quality: null,
+      stability: null
     },
     data: {
       training: null,
@@ -494,6 +498,9 @@
       eloLiveHistory: {},
       tournaments: [],
       logs: [],
+      dataMetrics: null,
+      trainingMetrics: null,
+      evalSignals: null,
       progress: {
         percent: null,
         text: null
@@ -518,7 +525,9 @@
         elo: false,
         heatmap: false,
         tournaments: false,
-        logs: false
+        logs: false,
+        quality: false,
+        stability: false
       }
     },
     meta: {
@@ -536,14 +545,18 @@
         training: null,
         elo: null,
         tournaments: null,
-        logs: null
+        logs: null,
+        quality: null,
+        stability: null
       },
       lastSeen: {
         any: null,
         training: null,
         elo: null,
         tournaments: null,
-        logs: null
+        logs: null,
+        quality: null,
+        stability: null
       },
       connection: {
         state: "disconnected",
@@ -869,15 +882,18 @@
 
         const prevWatch = s.meta && s.meta.trainingWatch ? s.meta.trainingWatch : initialState.meta.trainingWatch;
         const nextWatch = { ...prevWatch };
-        if (diff.appended && diff.appended.length) {
-          const last = diff.appended[diff.appended.length - 1];
-          const k = logEntryKey(last);
-          nextWatch.lastLogKey = k;
-          nextWatch.lastLogAt = Date.now();
-          nextWatch.lastAdvanceAt = Date.now();
-        } else if (nextWatch.lastLogKey == null && snap.length) {
-          nextWatch.lastLogKey = logEntryKey(snap[snap.length - 1]);
-          nextWatch.lastLogAt = Date.now();
+
+        const prevGames = prevWatch.lastGames;
+        const nextGames = (norm && typeof norm.games === "number") ? norm.games : prevGames;
+        if (typeof nextGames === "number") {
+          if (prevGames == null || nextGames > prevGames) {
+            nextWatch.lastGames = nextGames;
+            nextWatch.lastGamesAt = Date.now();
+            nextWatch.lastAdvanceAt = Date.now();
+          } else if (nextWatch.lastGames == null) {
+            nextWatch.lastGames = nextGames;
+            nextWatch.lastGamesAt = Date.now();
+          }
         }
 
         return shallowMerge(s, {
@@ -999,6 +1015,17 @@
       }
     }
     return { ok: false, status: 0, data: null };
+  }
+
+  async function fetchJSONFallback(paths, opts) {
+    const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
+    if (!list.length) return { ok: false, status: 0, data: null };
+    for (let i = 0; i < list.length; i++) {
+      const res = await fetchJSON(list[i], opts);
+      if (res.ok) return res;
+      if (res.status !== 404) return res;
+    }
+    return { ok: false, status: 404, data: null };
   }
 
   async function postJSON(path, body, opts) {
@@ -1314,25 +1341,42 @@
         actions._setLoading("elo", !(s0.data && s0.data.elo) && !!(s0.ui && s0.ui.opened && s0.ui.opened.elo));
         actions._setLoading("tournaments", !(s0.data && Array.isArray(s0.data.tournaments) && s0.data.tournaments.length) && !!(s0.ui && s0.ui.opened && s0.ui.opened.tournaments));
         actions._setLoading("logs", !(s0.data && Array.isArray(s0.data.logs) && s0.data.logs.length) && !!(s0.ui && s0.ui.opened && s0.ui.opened.logs));
+        actions._setLoading("quality", !(s0.data && s0.data.dataMetrics) && (s0.activeTab === "quality"));
+        actions._setLoading("stability", !(s0.data && (s0.data.trainingMetrics || s0.data.evalSignals)) && (s0.activeTab === "stability"));
         actions._setError("training", null);
         actions._setError("elo", null);
         actions._setError("tournaments", null);
         actions._setError("logs", null);
+        actions._setError("quality", null);
+        actions._setError("stability", null);
 
         const wantElo = !!(s0.ui && s0.ui.opened && s0.ui.opened.elo);
         const wantTournaments = !!(s0.ui && s0.ui.opened && s0.ui.opened.tournaments);
         const wantLogs = !!(s0.ui && s0.ui.opened && s0.ui.opened.logs);
+
+        const wantQuality = (s0.activeTab === "quality");
+        const wantStability = (s0.activeTab === "stability");
 
         const reqs = [fetchJSON("data.json")];
         if (wantLogs) reqs.push(fetchJSON("logs.json"));
         if (wantElo) reqs.push(fetchJSON("elo.json"));
         if (wantTournaments) reqs.push(fetchJSON("tournaments.json"));
 
+        if (wantQuality) reqs.push(fetchJSONFallback(["data_metrics.json", "../data_metrics.json"], { timeoutMs: 8000 }));
+        if (wantStability) {
+          reqs.push(fetchJSONFallback(["training_metrics.json", "../training_metrics.json"], { timeoutMs: 8000 }));
+          reqs.push(fetchJSONFallback(["eval_signals.json", "../eval_signals.json"], { timeoutMs: 12000 }));
+        }
+
         const res = await Promise.all(reqs);
         const trainingRes = res[0];
-        const logsRes = wantLogs ? res[1] : { ok: false, status: 0, data: null };
-        const eloRes = wantElo ? res[wantLogs ? 2 : 1] : { ok: false, status: 0, data: null };
-        const tournamentsRes = wantTournaments ? res[(wantLogs ? 1 : 0) + (wantElo ? 2 : 1)] : { ok: false, status: 0, data: null };
+        let i = 1;
+        const logsRes = wantLogs ? res[i++] : { ok: false, status: 0, data: null };
+        const eloRes = wantElo ? res[i++] : { ok: false, status: 0, data: null };
+        const tournamentsRes = wantTournaments ? res[i++] : { ok: false, status: 0, data: null };
+        const qualityRes = wantQuality ? res[i++] : { ok: false, status: 0, data: null };
+        const trainingMetricsRes = wantStability ? res[i++] : { ok: false, status: 0, data: null };
+        const evalSignalsRes = wantStability ? res[i++] : { ok: false, status: 0, data: null };
 
         if (trainingRes.ok) {
           lastOkAt = Date.now();
@@ -1373,11 +1417,37 @@
             actions._setError("logs", "Logs unavailable.");
           }
         }
+
+        if (wantQuality) {
+          if (qualityRes.ok) {
+            lastOkAt = Date.now();
+            actions.receiveOptional("dataMetrics", qualityRes.data);
+          } else if (qualityRes.status !== 404 && qualityRes.status !== 0) {
+            actions._setError("quality", "Data quality metrics unavailable.");
+          }
+        }
+
+        if (wantStability) {
+          if (trainingMetricsRes.ok) {
+            lastOkAt = Date.now();
+            actions.receiveOptional("trainingMetrics", trainingMetricsRes.data);
+          } else if (trainingMetricsRes.status !== 404 && trainingMetricsRes.status !== 0) {
+            actions._setError("stability", "Training stability metrics unavailable.");
+          }
+          if (evalSignalsRes.ok) {
+            lastOkAt = Date.now();
+            actions.receiveOptional("evalSignals", evalSignalsRes.data);
+          } else if (evalSignalsRes.status !== 404 && evalSignalsRes.status !== 0) {
+            actions._setError("stability", "Evaluation signals unavailable.");
+          }
+        }
       } finally {
         actions._setLoading("training", false);
         actions._setLoading("elo", false);
         actions._setLoading("tournaments", false);
         actions._setLoading("logs", false);
+        actions._setLoading("quality", false);
+        actions._setLoading("stability", false);
         inFlight = false;
       }
     }

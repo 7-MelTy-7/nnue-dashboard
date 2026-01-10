@@ -29,7 +29,7 @@
   const MAX_LOG_DOM_NODES = 1200;
 
   function normalizeTab(t) {
-    const ok = ["overview", "elo", "heatmap", "tournaments", "logs"];
+    const ok = ["overview", "quality", "stability", "elo", "heatmap", "tournaments", "logs"];
     return ok.includes(t) ? t : "overview";
   }
 
@@ -65,6 +65,34 @@
 
   function byId(id) {
     return document.getElementById(id);
+  }
+
+  function safeText(x) {
+    if (x == null) return "—";
+    if (typeof x === "string") return x.trim() ? x : "—";
+    if (typeof x === "number" && isFinite(x)) return String(x);
+    if (typeof x === "boolean") return x ? "true" : "false";
+    return "—";
+  }
+
+  function setPill(el, text, kind) {
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove("pill-ok", "pill-warn", "pill-bad");
+    if (kind === "ok") el.classList.add("pill-ok");
+    else if (kind === "warn") el.classList.add("pill-warn");
+    else if (kind === "bad") el.classList.add("pill-bad");
+  }
+
+  function fmtPct01(x) {
+    if (typeof x !== "number" || !isFinite(x)) return "—";
+    return `${Math.round(x * 100)}%`;
+  }
+
+  function pctWidth01(x) {
+    if (typeof x !== "number" || !isFinite(x)) return "0%";
+    const v = Math.max(0, Math.min(1, x));
+    return `${(v * 100).toFixed(1)}%`;
   }
 
   function postToHeatmap(msg) {
@@ -343,6 +371,9 @@
       sliceStart: 0,
       prevLen: 0
     },
+    signalsKey: null,
+    qualityKey: null,
+    stabilityKey: null,
     raf: 0,
     pendingState: null,
     els: null
@@ -380,6 +411,12 @@
       eloChart: byId("eloChart"),
       regressions: byId("regressions"),
       statusText: byId("statusText"),
+      sigSprtGate: byId("sigSprtGate"),
+      sigRegression: byId("sigRegression"),
+      sigDrift: byId("sigDrift"),
+      sigCurriculum: byId("sigCurriculum"),
+      sigLrReason: byId("sigLrReason"),
+      sigNote: byId("sigNote"),
       games: byId("games"),
       loss: byId("loss"),
       lr: byId("lr"),
@@ -394,7 +431,11 @@
       logWindow: byId("logWindow"),
       logN: byId("logN"),
       logNWrap: byId("logNWrap"),
-      logPause: byId("logPause")
+      logPause: byId("logPause"),
+      qualitySummary: byId("qualitySummary"),
+      qualityDist: byId("qualityDist"),
+      stabilitySummary: byId("stabilitySummary"),
+      evalSignals: byId("evalSignals")
     };
   }
 
@@ -691,6 +732,251 @@
       else if (state.loading && state.loading.training) ui.els.statusText.textContent = "loading…";
       else ui.els.statusText.textContent = "—";
     }
+
+    renderSignals(state);
+  }
+
+  function renderSignals(state) {
+    const tm = state.data && state.data.trainingMetrics ? state.data.trainingMetrics : null;
+    const dm = state.data && state.data.dataMetrics ? state.data.dataMetrics : null;
+    const es = state.data && state.data.evalSignals ? state.data.evalSignals : null;
+
+    const tmIso = tm && typeof tm.generated_at === "string" ? tm.generated_at : "";
+    const dmIso = dm && typeof dm.generated_at === "string" ? dm.generated_at : "";
+    const esIso = es && typeof es.generated_at === "string" ? es.generated_at : "";
+    const key = `${tmIso}|${dmIso}|${esIso}|${state.activeTab}`;
+    if (ui.signalsKey === key) return;
+    ui.signalsKey = key;
+
+    const stable = tm && typeof tm.stable_for_sprt === "boolean" ? tm.stable_for_sprt : null;
+    if (stable == null) setPill(ui.els.sigSprtGate, "—", null);
+    else setPill(ui.els.sigSprtGate, stable ? "OPEN" : "CLOSED", stable ? "ok" : "warn");
+
+    const regFlag = (
+      !!(es && es.regression && es.regression.flag) ||
+      !!(tm && tm.eval_regression)
+    );
+    setPill(ui.els.sigRegression, regFlag ? "FLAG" : "OK", regFlag ? "bad" : "ok");
+
+    let driftKind = null;
+    let driftText = "—";
+    try {
+      const warn = dm && dm.distribution ? dm.distribution.warning : null;
+      const drift = dm && dm.distribution ? dm.distribution.drift : null;
+      const l1 = drift ? Math.max(Number(drift.eval_l1 || 0), Number(drift.material_l1 || 0), Number(drift.phase_l1 || 0)) : null;
+      if (warn) {
+        driftKind = "warn";
+        driftText = "DRIFT";
+        if (l1 != null && isFinite(l1)) driftText = `DRIFT (${fmtNumber(l1, 2)})`;
+      } else if (l1 != null && isFinite(l1)) {
+        driftKind = l1 >= 0.30 ? "warn" : "ok";
+        driftText = `OK (${fmtNumber(l1, 2)})`;
+      } else {
+        driftKind = null;
+        driftText = "—";
+      }
+    } catch {
+      driftKind = null;
+      driftText = "—";
+    }
+    setPill(ui.els.sigDrift, driftText, driftKind);
+
+    const stage = tm && typeof tm.curriculum_stage === "number" ? tm.curriculum_stage : null;
+    setPill(ui.els.sigCurriculum, stage == null ? "—" : `S${stage}`, stage == null ? null : "ok");
+
+    const lrReason = tm && typeof tm.lr_reason === "string" ? tm.lr_reason : null;
+    setPill(ui.els.sigLrReason, lrReason ? lrReason : "—", lrReason ? "ok" : null);
+
+    if (ui.els.sigNote) {
+      const bits = [];
+      const rs = tm && Array.isArray(tm.stable_reasons) ? tm.stable_reasons : [];
+      if (stable === false && rs.length) bits.push(`gate: ${rs.slice(0, 4).join(", ")}`);
+      const er = tm && tm.eval_reason ? String(tm.eval_reason) : (es && es.regression && es.regression.reason ? String(es.regression.reason) : "");
+      if (regFlag && er) bits.push(er);
+      const warn = dm && dm.distribution && dm.distribution.warning ? dm.distribution.warning : null;
+      if (warn && warn.type) bits.push(`drift: ${warn.type}`);
+      ui.els.sigNote.textContent = bits.length ? bits.join(" · ") : "—";
+    }
+  }
+
+  function renderQuality(state) {
+    const dm = state.data && state.data.dataMetrics ? state.data.dataMetrics : null;
+    const iso = dm && typeof dm.generated_at === "string" ? dm.generated_at : "";
+    const key = `${iso}|${state.loading && state.loading.quality}|${state.error && state.error.quality}`;
+    if (ui.qualityKey === key) return;
+    ui.qualityKey = key;
+
+    if (ui.els.qualitySummary) {
+      if (state.loading && state.loading.quality) {
+        ui.els.qualitySummary.innerHTML = "<div class=\"panel-note\">loading…</div>";
+      } else if (state.error && state.error.quality) {
+        ui.els.qualitySummary.innerHTML = `<div class=\"panel-note\">${state.error.quality}</div>`;
+      } else if (!dm) {
+        ui.els.qualitySummary.innerHTML = "<div class=\"panel-note\">No data.</div>";
+      } else {
+        const f = dm.filter || {};
+        const pb = dm.phase_balance || {};
+        const dist = dm.distribution || {};
+        const drift = dist.drift || null;
+        const warn = dist.warning || dist.last_warning || null;
+        const maxL1 = drift ? Math.max(Number(drift.eval_l1 || 0), Number(drift.material_l1 || 0), Number(drift.phase_l1 || 0)) : null;
+
+        const parts = [];
+        const seen = Number(f.seen);
+        const kept = Number(f.kept);
+        const dropped = (isFinite(seen) && isFinite(kept)) ? Math.max(0, seen - kept) : null;
+
+        parts.push(`<div class=\"kv-item\"><b>Generated</b><span>${safeText(iso)}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>Seen</b><span>${safeText(isFinite(seen) ? seen : f.seen)}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>Kept</b><span>${safeText(isFinite(kept) ? kept : f.kept)}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>Dropped</b><span>${safeText(dropped)}</span></div>`);
+
+        const driftKind = warn ? "pill-warn" : (maxL1 != null && isFinite(maxL1) && maxL1 >= 0.30) ? "pill-warn" : "pill-ok";
+        const driftText = warn ? "DRIFT" : "OK";
+        const driftSuffix = (maxL1 != null && isFinite(maxL1)) ? ` (${fmtNumber(maxL1, 2)})` : "";
+        parts.push(`<div class=\"kv-item\"><b>Drift</b><span class=\"pill ${driftKind}\">${driftText}${driftSuffix}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>Phase window</b><span>${safeText(pb.window)}</span></div>`);
+
+        ui.els.qualitySummary.innerHTML = parts.join("");
+      }
+    }
+
+    if (ui.els.qualityDist) {
+      if (state.loading && state.loading.quality) {
+        ui.els.qualityDist.textContent = "loading…";
+        return;
+      }
+      if (state.error && state.error.quality) {
+        ui.els.qualityDist.textContent = state.error.quality;
+        return;
+      }
+      if (!dm || !dm.distribution) {
+        ui.els.qualityDist.textContent = "No data.";
+        return;
+      }
+
+      const dist = dm.distribution;
+      const pb = dm.phase_balance || {};
+      const ratios = pb.ratios || {};
+      const target = pb.target || {};
+      const evalHist = dist.eval_hist || {};
+      const matHist = dist.material_hist || {};
+      const phHist = dist.phase_hist || {};
+
+      const warn = dist.warning || dist.last_warning || null;
+      const warnTxt = warn && warn.type ? safeText(warn.type) : "—";
+
+      ui.els.qualityDist.innerHTML = `
+        <div class=\"panel-note\">warning: <b>${warnTxt}</b></div>
+        <div class=\"bar-group\">
+          <div class=\"panel-note\">Phase balance</div>
+          <div class=\"bar-rows\">
+            <div class=\"bar-row\"><div class=\"bar-label\">opening</div><div class=\"bar-track\"><div class=\"bar-fill\" style=\"width:${pctWidth01(ratios.opening)}\"></div></div><div class=\"bar-meta\">${fmtPct01(ratios.opening)} (tgt ${fmtPct01(target.opening)})</div></div>
+            <div class=\"bar-row\"><div class=\"bar-label\">midgame</div><div class=\"bar-track\"><div class=\"bar-fill\" style=\"width:${pctWidth01(ratios.midgame)}\"></div></div><div class=\"bar-meta\">${fmtPct01(ratios.midgame)} (tgt ${fmtPct01(target.midgame)})</div></div>
+            <div class=\"bar-row\"><div class=\"bar-label\">endgame</div><div class=\"bar-track\"><div class=\"bar-fill\" style=\"width:${pctWidth01(ratios.endgame)}\"></div></div><div class=\"bar-meta\">${fmtPct01(ratios.endgame)} (tgt ${fmtPct01(target.endgame)})</div></div>
+          </div>
+        </div>
+        <div class=\"panel-note\">Eval distribution (bins)</div>
+        ${renderMiniHist(evalHist)}
+        <div class=\"panel-note\">Material distribution (pieces)</div>
+        ${renderMiniHist(matHist)}
+        <div class=\"panel-note\">Phase histogram</div>
+        <div class=\"kv-grid\">
+          <div class=\"kv-item\"><b>opening</b><span>${safeText(phHist.opening)}</span></div>
+          <div class=\"kv-item\"><b>midgame</b><span>${safeText(phHist.midgame)}</span></div>
+          <div class=\"kv-item\"><b>endgame</b><span>${safeText(phHist.endgame)}</span></div>
+        </div>
+      `;
+    }
+  }
+
+  function renderMiniHist(hist) {
+    const h = (hist && typeof hist === "object") ? hist : {};
+    const keys = Object.keys(h);
+    if (!keys.length) return "<div class=\"panel-note\">—</div>";
+    const sorted = keys.sort((a, b) => Number(a) - Number(b));
+    const maxBars = 42;
+    const step = Math.max(1, Math.ceil(sorted.length / maxBars));
+    const pick = sorted.filter((_, i) => i % step === 0);
+    let maxV = 1;
+    pick.forEach(k => { maxV = Math.max(maxV, Number(h[k] || 0)); });
+    const bars = pick.map(k => {
+      const v = Number(h[k] || 0);
+      const pct = maxV > 0 ? Math.round((v / maxV) * 100) : 0;
+      return `<div class=\"mini-bar\" title=\"${k}: ${v}\"><div class=\"mini-bar-fill\" style=\"height:${pct}%\"></div></div>`;
+    }).join("");
+    return `<div class=\"mini-hist\">${bars}</div>`;
+  }
+
+  function renderStability(state) {
+    const tm = state.data && state.data.trainingMetrics ? state.data.trainingMetrics : null;
+    const es = state.data && state.data.evalSignals ? state.data.evalSignals : null;
+    const isoTm = tm && typeof tm.generated_at === "string" ? tm.generated_at : "";
+    const isoEs = es && typeof es.generated_at === "string" ? es.generated_at : "";
+    const key = `${isoTm}|${isoEs}|${state.loading && state.loading.stability}|${state.error && state.error.stability}`;
+    if (ui.stabilityKey === key) return;
+    ui.stabilityKey = key;
+
+    if (ui.els.stabilitySummary) {
+      if (state.loading && state.loading.stability) {
+        ui.els.stabilitySummary.innerHTML = "<div class=\"panel-note\">loading…</div>";
+      } else if (state.error && state.error.stability) {
+        ui.els.stabilitySummary.innerHTML = `<div class=\"panel-note\">${state.error.stability}</div>`;
+      } else if (!tm && !es) {
+        ui.els.stabilitySummary.innerHTML = "<div class=\"panel-note\">No data.</div>";
+      } else {
+        const stable = tm && typeof tm.stable_for_sprt === "boolean" ? tm.stable_for_sprt : null;
+        const stableKind = stable == null ? "" : (stable ? "pill-ok" : "pill-warn");
+        const stableTxt = stable == null ? "—" : (stable ? "OPEN" : "CLOSED");
+        const reasons = tm && Array.isArray(tm.stable_reasons) ? tm.stable_reasons : [];
+        const evalReg = !!(tm && tm.eval_regression) || !!(es && es.regression && es.regression.flag);
+        const evalReason = tm && tm.eval_reason ? String(tm.eval_reason) : (es && es.regression && es.regression.reason ? String(es.regression.reason) : "");
+
+        const parts = [];
+        parts.push(`<div class=\"kv-item\"><b>Generated</b><span>${safeText(isoTm || isoEs)}</span></div>`);
+        if (tm && typeof tm.games === "number") parts.push(`<div class=\"kv-item\"><b>Games</b><span>${safeText(tm.games)}</span></div>`);
+        if (tm && typeof tm.loss === "number") parts.push(`<div class=\"kv-item\"><b>Loss</b><span>${fmtNumber(tm.loss, 6)}</span></div>`);
+        if (tm && typeof tm.ema_loss === "number") parts.push(`<div class=\"kv-item\"><b>EMA loss</b><span>${fmtNumber(tm.ema_loss, 6)}</span></div>`);
+        if (tm && typeof tm.loss_std === "number") parts.push(`<div class=\"kv-item\"><b>Loss std</b><span>${fmtNumber(tm.loss_std, 4)}</span></div>`);
+        if (tm && typeof tm.lr === "number") parts.push(`<div class=\"kv-item\"><b>LR</b><span>${fmtNumber(tm.lr, 6)}</span></div>`);
+        if (tm && tm.lr_reason) parts.push(`<div class=\"kv-item\"><b>LR reason</b><span>${safeText(tm.lr_reason)}</span></div>`);
+        if (tm && typeof tm.curriculum_stage === "number") parts.push(`<div class=\"kv-item\"><b>Curriculum</b><span>${safeText(tm.curriculum_stage)}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>SPRT gate</b><span class=\"pill ${stableKind}\">${stableTxt}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>Gate reasons</b><span>${reasons && reasons.length ? reasons.slice(0, 6).join(", ") : "—"}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>Eval regression</b><span class=\"pill ${evalReg ? "pill-bad" : "pill-ok"}\">${evalReg ? "FLAG" : "OK"}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>Eval reason</b><span>${evalReg ? (evalReason || "—") : "—"}</span></div>`);
+        ui.els.stabilitySummary.innerHTML = parts.join("");
+      }
+    }
+
+    if (ui.els.evalSignals) {
+      if (state.loading && state.loading.stability) {
+        ui.els.evalSignals.textContent = "loading…";
+        return;
+      }
+      if (state.error && state.error.stability) {
+        ui.els.evalSignals.textContent = state.error.stability;
+        return;
+      }
+      if (!es) {
+        ui.els.evalSignals.textContent = "No data.";
+        return;
+      }
+
+      const reg = es.regression || {};
+      const comps = es.comparisons && typeof es.comparisons === "object" ? es.comparisons : {};
+      const rows = Object.entries(comps).map(([k, v]) => {
+        const wins = v && v.wins != null ? v.wins : "—";
+        const losses = v && v.losses != null ? v.losses : "—";
+        const draws = v && v.draws != null ? v.draws : "—";
+        const elo = (v && typeof v.elo === "number") ? fmtNumber(v.elo, 2) : safeText(v && v.elo);
+        return `<div class=\"eval-row\"><b>${k}</b><span>W ${wins} · L ${losses} · D ${draws}</span><span>ELO ${elo}</span></div>`;
+      }).join("");
+
+      const pill = reg.flag ? "pill-bad" : "pill-ok";
+      const head = `<div class=\"panel-note\">regression: <span class=\"pill ${pill}\">${reg.flag ? "FLAG" : "OK"}</span> ${reg.reason ? `· ${safeText(reg.reason)}` : ""}</div>`;
+      ui.els.evalSignals.innerHTML = head + (rows || "<div class=\"panel-note\">No comparisons.</div>");
+    }
   }
 
   function renderRegressions(state) {
@@ -888,6 +1174,8 @@
     renderOverview(state);
     renderProgress(state);
     renderLogsControls(state);
+    if (state.activeTab === "quality") renderQuality(state);
+    if (state.activeTab === "stability") renderStability(state);
     if (state.activeTab === "elo") {
       renderTop5(state);
       renderRegressions(state);
