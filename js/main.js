@@ -126,8 +126,12 @@
         backend = (cfg || "").trim();
       }
       if (backend) src += (src.includes("?") ? "&" : "?") + `backend=${encodeURIComponent(backend)}`;
+      try {
+        const t = (localStorage.getItem("nnue_dashboard_theme") || "").trim();
+        if (t) src += (src.includes("?") ? "&" : "?") + `theme=${encodeURIComponent(t)}`;
+      } catch {
+      }
     } catch {
-      // Non-fatal: iframe will use same-origin by default.
     }
     iframe.src = src;
     iframe.className = "embed-heatmap-iframe";
@@ -152,9 +156,11 @@
     const el = ui.els.tournamentList;
     if (!el) return;
     if (state.loading && state.loading.tournaments) {
+      el.setAttribute("aria-busy", "true");
       el.textContent = "loading…";
       return;
     }
+    el.removeAttribute("aria-busy");
     if (state.error && state.error.tournaments) {
       el.textContent = state.error.tournaments;
       return;
@@ -264,9 +270,11 @@
     if (state.loading && state.loading.logs) {
       ui.logsRender.key = null;
       ui.logsRender.filterKey = null;
+      el.setAttribute("aria-busy", "true");
       el.textContent = "loading…";
       return;
     }
+    el.removeAttribute("aria-busy");
     if (state.error && state.error.logs) {
       ui.logsRender.key = null;
       ui.logsRender.filterKey = null;
@@ -430,6 +438,7 @@
       games: byId("games"),
       loss: byId("loss"),
       lr: byId("lr"),
+      eloValue: byId("eloValue"),
       time: byId("time"),
       progressText: byId("progressText"),
       progressValue: byId("progressValue"),
@@ -447,6 +456,44 @@
       stabilitySummary: byId("stabilitySummary"),
       evalSignals: byId("evalSignals")
     };
+  }
+
+  function attachPulseCleaner(el) {
+    if (!el) return;
+    if (el.dataset && el.dataset.pulseBound === "1") return;
+    try {
+      el.addEventListener("animationend", (e) => {
+        if (!e || !e.animationName) return;
+        if (e.animationName !== "pulseUp" && e.animationName !== "pulseDown") return;
+        el.classList.remove("pulse-up", "pulse-down");
+      }, { passive: true });
+      el.dataset.pulseBound = "1";
+    } catch {
+      return;
+    }
+  }
+
+  function toNumber(x) {
+    if (typeof x === "number" && isFinite(x)) return x;
+    if (typeof x === "string" && x.trim()) {
+      const v = Number(x);
+      if (isFinite(v)) return v;
+    }
+    return null;
+  }
+
+  function applyPulse(el, prev, next, opts) {
+    if (!el) return;
+    const p = toNumber(prev);
+    const n = toNumber(next);
+    if (p == null || n == null) return;
+    if (p === n) return;
+    const isUp = !!(opts && opts.invert ? (n < p) : (n > p));
+    attachPulseCleaner(el);
+
+    el.classList.remove("pulse-up", "pulse-down");
+    void el.offsetWidth;
+    el.classList.add(isUp ? "pulse-up" : "pulse-down");
   }
 
   function renderHealth(state) {
@@ -727,9 +774,36 @@
 
   function renderOverview(state) {
     const d = state.data && state.data.training;
-    if (ui.els.games) ui.els.games.textContent = (d && typeof d.games === "number") ? String(d.games) : "—";
-    if (ui.els.loss) ui.els.loss.textContent = (d && typeof d.loss === "number") ? fmtNumber(d.loss, 6) : "—";
-    if (ui.els.lr) ui.els.lr.textContent = (d && typeof d.lr === "number") ? fmtNumber(d.lr, 6) : "—";
+
+    const prevGames = ui.els.games ? ui.els.games.textContent : null;
+    const prevLoss = ui.els.loss ? ui.els.loss.textContent : null;
+    const prevLr = ui.els.lr ? ui.els.lr.textContent : null;
+    const prevElo = ui.els.eloValue ? ui.els.eloValue.textContent : null;
+
+    const nextGames = (d && typeof d.games === "number") ? String(d.games) : "—";
+    const nextLoss = (d && typeof d.loss === "number") ? fmtNumber(d.loss, 6) : "—";
+    const nextLr = (d && typeof d.lr === "number") ? fmtNumber(d.lr, 6) : "—";
+
+    let nextElo = "—";
+    try {
+      const elo = state.data && state.data.elo;
+      const top5 = (elo && Array.isArray(elo.top5)) ? elo.top5 : [];
+      const best = top5.length ? top5[0] : null;
+      if (best && best.elo != null) nextElo = String(best.elo);
+    } catch {
+      nextElo = "—";
+    }
+
+    if (ui.els.games) ui.els.games.textContent = nextGames;
+    if (ui.els.loss) ui.els.loss.textContent = nextLoss;
+    if (ui.els.lr) ui.els.lr.textContent = nextLr;
+    if (ui.els.eloValue) ui.els.eloValue.textContent = nextElo;
+
+    applyPulse(ui.els.games, prevGames, nextGames);
+    applyPulse(ui.els.loss, prevLoss, nextLoss, { invert: true });
+    applyPulse(ui.els.lr, prevLr, nextLr);
+    applyPulse(ui.els.eloValue, prevElo, nextElo);
+
     if (ui.els.time) {
       const ms = (d && typeof d.elapsed_ms === "number") ? d.elapsed_ms : (d && typeof d.elapsedMs === "number" ? d.elapsedMs : null);
       ui.els.time.textContent = (ms != null) ? formatDuration(ms) : "—";
@@ -741,6 +815,9 @@
       else if (d && typeof d.status === "string") ui.els.statusText.textContent = d.status;
       else if (state.loading && state.loading.training) ui.els.statusText.textContent = "loading…";
       else ui.els.statusText.textContent = "—";
+
+      if (state.loading && state.loading.training) ui.els.statusText.setAttribute("aria-busy", "true");
+      else ui.els.statusText.removeAttribute("aria-busy");
     }
 
     renderSignals(state);
@@ -815,6 +892,15 @@
     const key = `${iso}|${state.loading && state.loading.quality}|${state.error && state.error.quality}`;
     if (ui.qualityKey === key) return;
     ui.qualityKey = key;
+
+    if (ui.els.qualitySummary) {
+      if (state.loading && state.loading.quality) ui.els.qualitySummary.setAttribute("aria-busy", "true");
+      else ui.els.qualitySummary.removeAttribute("aria-busy");
+    }
+    if (ui.els.qualityDist) {
+      if (state.loading && state.loading.quality) ui.els.qualityDist.setAttribute("aria-busy", "true");
+      else ui.els.qualityDist.removeAttribute("aria-busy");
+    }
 
     if (ui.els.qualitySummary) {
       if (state.loading && state.loading.quality) {
@@ -926,6 +1012,15 @@
     const key = `${isoTm}|${isoEs}|${state.loading && state.loading.stability}|${state.error && state.error.stability}`;
     if (ui.stabilityKey === key) return;
     ui.stabilityKey = key;
+
+    if (ui.els.stabilitySummary) {
+      if (state.loading && state.loading.stability) ui.els.stabilitySummary.setAttribute("aria-busy", "true");
+      else ui.els.stabilitySummary.removeAttribute("aria-busy");
+    }
+    if (ui.els.evalSignals) {
+      if (state.loading && state.loading.stability) ui.els.evalSignals.setAttribute("aria-busy", "true");
+      else ui.els.evalSignals.removeAttribute("aria-busy");
+    }
 
     if (ui.els.stabilitySummary) {
       if (state.loading && state.loading.stability) {
@@ -1296,6 +1391,7 @@
     const canvas = document.getElementById('snow');
     if (canvas) {
       const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const isCyber = !!(document.documentElement && document.documentElement.classList && document.documentElement.classList.contains('theme-cyber-frost'));
       const ctx = canvas.getContext('2d');
       let W = window.innerWidth, H = window.innerHeight;
       canvas.width = W;
@@ -1324,6 +1420,36 @@
         }
       }
 
+      function drawLinks(t) {
+        if (!isCyber) return;
+        const maxDist = Math.min(140, Math.max(90, Math.floor(Math.min(W, H) * 0.18)));
+        const maxDist2 = maxDist * maxDist;
+        ctx.save();
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 0;
+        for (let i = 0; i < snowflakes.length; i++) {
+          const a = snowflakes[i];
+          for (let j = i + 1; j < snowflakes.length; j++) {
+            const b = snowflakes[j];
+            const dx = a.x - b.x;
+            const dy = a.y - b.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 > maxDist2) continue;
+            const d = Math.sqrt(d2);
+            const x = 1 - (d / maxDist);
+            const pulse = 0.65 + 0.35 * Math.sin((t / 1400) + a.a + b.a);
+            const alpha = Math.max(0, Math.min(0.22, x * 0.22 * pulse));
+            if (alpha < 0.02) continue;
+            ctx.strokeStyle = `rgba(120, 230, 255, ${alpha.toFixed(3)})`;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
       function drawSnow() {
         if (reduceMotion) {
           ctx.clearRect(0, 0, W, H);
@@ -1331,12 +1457,15 @@
         }
         ctx.clearRect(0, 0, W, H);
         const t = Date.now();
+
+        drawLinks(t);
+
         for (const f of snowflakes) {
           ctx.globalAlpha = f.o;
           ctx.beginPath();
           ctx.arc(f.x, f.y, f.r, 0, 2 * Math.PI);
-          ctx.fillStyle = "rgba(255,255,255,0.9)";
-          ctx.shadowColor = "rgba(160, 215, 255, 0.18)";
+          ctx.fillStyle = isCyber ? "rgba(235, 252, 255, 0.92)" : "rgba(255,255,255,0.9)";
+          ctx.shadowColor = isCyber ? "rgba(90, 235, 255, 0.28)" : "rgba(160, 215, 255, 0.18)";
           ctx.shadowBlur = 1 + 2 * f.r;
           ctx.fill();
           f.y += f.s;

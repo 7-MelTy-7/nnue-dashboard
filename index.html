@@ -10,6 +10,21 @@
   <meta name="nnue-build" content="2026-01-10-001" />
   <meta name="nnue-backend-base" content="" />
   <meta name="nnue-allow-admin" content="0" />
+  <meta name="nnue-theme" content="" />
+  <script>
+    (function () {
+      try {
+        var t = (localStorage.getItem('nnue_dashboard_theme') || '').trim().toLowerCase();
+        if (t === 'winter') {
+          document.documentElement.classList.add('theme-winter');
+        } else if (t === 'cyber-frost' || t === 'cyber_frost' || t === 'cyber') {
+          document.documentElement.classList.add('theme-winter');
+          document.documentElement.classList.add('theme-cyber-frost');
+        }
+      } catch (e) {
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="style.css?v=2026-01-10-001" />
   <link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Montserrat:wght@300;500;700&display=swap" rel="stylesheet">
 </head>
@@ -29,6 +44,7 @@
     </div>
     <div class="mode-row">
       <button id="adminToggle" class="admin-toggle" type="button">Enable Admin</button>
+      <button id="themeToggle" class="theme-toggle" type="button" title="UI Theme: Default">UI: Default</button>
       <span id="adminBadge" class="admin-badge" style="display:none">ADMIN</span>
     </div>
   </header>
@@ -49,6 +65,7 @@
         <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><div class="stat-line"><span class="stat-label">Games</span><span class="stat-sep">=</span><b id="games" class="stat-value">—</b></div></div>
         <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><div class="stat-line"><span class="stat-label">Loss</span><span class="stat-sep">=</span><b id="loss" class="stat-value">—</b></div></div>
         <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><div class="stat-line"><span class="stat-label">LR</span><span class="stat-sep">=</span><b id="lr" class="stat-value">—</b></div></div>
+        <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><div class="stat-line"><span class="stat-label">ELO</span><span class="stat-sep">=</span><b id="eloValue" class="stat-value">—</b></div></div>
         <div class="stat-card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration garland-small"></div><div class="stat-line"><span class="stat-label">Time</span><span class="stat-sep">=</span><b id="time" class="stat-value">—</b></div></div>
       </div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
@@ -209,6 +226,7 @@
       <div class="explain-note" id="explainNote"></div>
     </div>
   </div>
+  <script src="js/theme.js?v=2026-01-10-001"></script>
   <script src="app.js?v=2026-01-10-001"></script>
   <script src="js/main.js?v=2026-01-10-001"></script>
 </body>

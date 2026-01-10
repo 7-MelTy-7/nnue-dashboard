@@ -4,6 +4,23 @@
   <meta charset="UTF-8">
   <title>NNUE Heatmap</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="nnue-build" content="2026-01-10-001" />
+  <meta name="nnue-theme" content="" />
+  <script>
+    (function () {
+      try {
+        var u = new URL(window.location.href);
+        var t = (u.searchParams.get('theme') || '').trim().toLowerCase();
+        if (t === 'winter') {
+          document.documentElement.classList.add('theme-winter');
+        } else if (t === 'cyber-frost' || t === 'cyber_frost' || t === 'cyber') {
+          document.documentElement.classList.add('theme-winter');
+          document.documentElement.classList.add('theme-cyber-frost');
+        }
+      } catch (e) {
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="style.css?v=2026-01-10-001">
 </head>
 <body class="hm-dark">

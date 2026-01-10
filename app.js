@@ -1010,8 +1010,6 @@
             await sleepMs(jitter);
             continue;
           }
-          // Most common cause is reading while the writer is in the middle of an atomic update.
-          // Treat as transient rather than a hard backend error.
           return { ok: false, status: 0, data: null };
         }
       } catch {
