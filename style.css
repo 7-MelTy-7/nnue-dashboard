@@ -1901,7 +1901,7 @@ body, html {
     padding: 12px 12px 10px 12px;
   }
   .container {
-    padding: 0 10px calc(24px + env(safe-area-inset-bottom) + 86px);
+    padding: 0 10px calc(24px + env(safe-area-inset-bottom) + var(--mobile-bottom-nav));
   }
   .garland-decoration {
     left: 8px;
