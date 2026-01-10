@@ -289,8 +289,11 @@ body {
   pointer-events: none;
   z-index: 4;
   background:
-    radial-gradient(120% 110% at 20% 30%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.78) 42%, rgba(207,234,255,0.38) 100%),
-    linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(233, 248, 255, 0.62) 70%, rgba(207,234,255,0.12) 100%);
+    radial-gradient(18px 12px at 14% 55%, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.60) 55%, rgba(255,255,255,0.00) 70%),
+    radial-gradient(22px 14px at 36% 40%, rgba(255,255,255,0.90) 0%, rgba(255,255,255,0.55) 60%, rgba(255,255,255,0.00) 72%),
+    radial-gradient(16px 11px at 58% 58%, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.52) 58%, rgba(255,255,255,0.00) 72%),
+    radial-gradient(20px 13px at 80% 44%, rgba(255,255,255,0.90) 0%, rgba(255,255,255,0.54) 62%, rgba(255,255,255,0.00) 74%),
+    linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(233, 248, 255, 0.44) 70%, rgba(207,234,255,0.10) 100%);
   filter: drop-shadow(0 10px 18px rgba(145, 205, 255, 0.14));
   opacity: 0.95;
   border-top-left-radius: 16px;
@@ -427,7 +430,7 @@ body {
   box-shadow: var(--shadow-0), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  overflow: visible;
+  overflow: hidden;
   min-height: auto;
 }
 
@@ -499,6 +502,207 @@ pre {
     radial-gradient(120% 90% at 50% 30%, rgba(145,205,255,0.18) 0%, rgba(145,205,255,0.04) 55%, rgba(145,205,255,0.00) 78%),
     linear-gradient(180deg, rgba(145,205,255,0.22) 0%, rgba(145,205,255,0.10) 60%, rgba(145,205,255,0.00) 100%);
   filter: drop-shadow(0 2px 10px rgba(0,0,0,0.25));
+}
+
+/* Clip garland overlays to the card radius to avoid protruding top corners. */
+.pro-card-garland {
+  overflow: hidden;
+}
+.pro-card-garland .garland-decoration {
+  left: 8px;
+  right: 8px;
+}
+.pro-card-garland .garland-decoration::before,
+.pro-card-garland .garland-decoration::after {
+  left: 0;
+  right: 0;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+}
+
+@media (max-width: 520px) {
+  .pro-card-garland .garland-decoration::before,
+  .pro-card-garland .garland-decoration::after {
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+  }
+}
+
+/* Utility styles for Quality/Stability panels (keeps existing look & spacing). */
+.panel-note {
+  color: rgba(190, 210, 230, 0.78);
+  font-size: 0.92em;
+  margin: 6px 0 10px;
+}
+
+.kv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 12px;
+  margin-top: 8px;
+}
+
+.kv-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(10, 12, 22, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.kv-item b {
+  color: rgba(190, 210, 230, 0.88);
+  font-weight: 700;
+}
+
+.kv-item span {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(10, 12, 22, 0.30);
+  color: rgba(245, 251, 255, 0.90);
+  font-family: 'Russo One', 'Montserrat', sans-serif;
+  font-size: 0.86em;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.pill-ok {
+  border-color: rgba(46, 229, 157, 0.18);
+  background: rgba(46, 229, 157, 0.10);
+  color: rgba(46, 229, 157, 0.92);
+}
+
+.pill-warn {
+  border-color: rgba(255, 209, 102, 0.18);
+  background: rgba(255, 209, 102, 0.10);
+  color: rgba(255, 209, 102, 0.92);
+}
+
+.pill-bad {
+  border-color: rgba(255, 120, 120, 0.18);
+  background: rgba(255, 120, 120, 0.10);
+  color: rgba(255, 120, 120, 0.92);
+}
+
+.scroll-panel {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 62vh;
+  padding: 8px 8px 10px;
+  border-radius: 12px;
+  background: rgba(10, 12, 22, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.bar-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 84px 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.bar-label {
+  color: rgba(190, 210, 230, 0.86);
+  font-size: 0.92em;
+}
+
+.bar-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(10, 12, 22, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(66, 160, 255, 0.88), rgba(120, 230, 255, 0.92));
+  box-shadow: 0 0 14px rgba(120, 190, 255, 0.14);
+}
+
+.bar-meta {
+  font-variant-numeric: tabular-nums;
+  color: rgba(190, 210, 230, 0.78);
+  font-size: 0.90em;
+  white-space: nowrap;
+}
+
+.mini-hist {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  padding: 8px 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(10, 12, 22, 0.18);
+}
+
+.mini-bar {
+  flex: 1 1 0;
+  height: 54px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.mini-bar-fill {
+  width: 100%;
+  height: 0%;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(145, 205, 255, 0.28), rgba(120, 190, 255, 0.10));
+}
+
+.eval-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(10, 12, 22, 0.18);
+}
+
+.eval-row b {
+  color: rgba(245, 251, 255, 0.92);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .bar-row {
+    grid-template-columns: 72px 1fr;
+  }
+  .bar-meta {
+    grid-column: 1 / -1;
+    text-align: right;
+  }
+  .eval-row {
+    grid-template-columns: 1fr;
+  }
 }
 .garland-decoration::before {
   opacity: 1;

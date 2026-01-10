@@ -114,10 +114,20 @@
     const v = BUILD_ID ? `v=${encodeURIComponent(BUILD_ID)}` : "";
     let src = v ? `${base}?${v}` : base;
     try {
-      const cfg = window.NNUE_CONFIG && typeof window.NNUE_CONFIG.backendBase === "string" ? window.NNUE_CONFIG.backendBase : "";
-      if (cfg && cfg.trim()) src += (src.includes("?") ? "&" : "?") + `backend=${encodeURIComponent(cfg.trim())}`;
+      let backend = "";
+      try {
+        const u = new URL(window.location.href);
+        backend = (u.searchParams.get("backend") || u.searchParams.get("backend_base") || "").trim();
+      } catch {
+        backend = "";
+      }
+      if (!backend) {
+        const cfg = window.NNUE_CONFIG && typeof window.NNUE_CONFIG.backendBase === "string" ? window.NNUE_CONFIG.backendBase : "";
+        backend = (cfg || "").trim();
+      }
+      if (backend) src += (src.includes("?") ? "&" : "?") + `backend=${encodeURIComponent(backend)}`;
     } catch {
-      return;
+      // Non-fatal: iframe will use same-origin by default.
     }
     iframe.src = src;
     iframe.className = "embed-heatmap-iframe";

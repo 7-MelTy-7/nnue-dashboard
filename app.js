@@ -41,9 +41,17 @@
   const ADMIN_ALLOWED = isAdminAllowed();
 
   function getBackendBaseUrl() {
+    let fromQuery = "";
+    try {
+      const u = new URL(window.location.href);
+      fromQuery = (u.searchParams.get("backend") || u.searchParams.get("backend_base") || "").trim();
+    } catch {
+      fromQuery = "";
+    }
+
     const fromGlobal = window.NNUE_CONFIG && typeof window.NNUE_CONFIG.backendBase === "string" ? window.NNUE_CONFIG.backendBase : "";
     const fromMeta = getMetaContent("nnue-backend-base");
-    const base = (fromGlobal || fromMeta || "").trim();
+    const base = (fromQuery || fromGlobal || fromMeta || "").trim();
     if (!base) return new URL(".", window.location.href);
     try {
       return new URL(base, window.location.href);
@@ -884,7 +892,8 @@
         const nextWatch = { ...prevWatch };
 
         const prevGames = prevWatch.lastGames;
-        const nextGames = (norm && typeof norm.games === "number") ? norm.games : prevGames;
+        const t = s.data && s.data.training;
+        const nextGames = (t && typeof t.games === "number") ? t.games : prevGames;
         if (typeof nextGames === "number") {
           if (prevGames == null || nextGames > prevGames) {
             nextWatch.lastGames = nextGames;
@@ -1001,7 +1010,9 @@
             await sleepMs(jitter);
             continue;
           }
-          return { ok: false, status: res.status, data: null };
+          // Most common cause is reading while the writer is in the middle of an atomic update.
+          // Treat as transient rather than a hard backend error.
+          return { ok: false, status: 0, data: null };
         }
       } catch {
         if (i < attempts - 1) {
@@ -1084,6 +1095,12 @@
     let missing = {
       tournaments: 0,
       logs: 0
+    };
+
+    let lastOptionalFetchAt = {
+      dataMetrics: 0,
+      trainingMetrics: 0,
+      evalSignals: 0
     };
 
     function stopRealtime() {
@@ -1188,6 +1205,7 @@
         ws.onopen = () => {
           retries = 0;
           connectedOnce = true;
+          lastOkAt = Date.now();
           setTransportState("connected");
           stopPolling();
           if (connectTimer) {
@@ -1243,6 +1261,7 @@
         es.onopen = () => {
           retries = 0;
           connectedOnce = true;
+          lastOkAt = Date.now();
           setTransportState("connected");
           stopPolling();
           if (connectTimer) {
@@ -1354,8 +1373,16 @@
         const wantTournaments = !!(s0.ui && s0.ui.opened && s0.ui.opened.tournaments);
         const wantLogs = !!(s0.ui && s0.ui.opened && s0.ui.opened.logs);
 
-        const wantQuality = (s0.activeTab === "quality");
-        const wantStability = (s0.activeTab === "stability");
+        const wantQualityTab = (s0.activeTab === "quality");
+        const wantStabilityTab = (s0.activeTab === "stability");
+        const wantSignals = (s0.activeTab === "overview");
+        const now = Date.now();
+
+        const signalsRateMs = 15000;
+        const evalRateMs = 30000;
+        const wantQuality = wantQualityTab || (wantSignals && (now - lastOptionalFetchAt.dataMetrics > signalsRateMs));
+        const wantTrainingMetrics = wantStabilityTab || (wantSignals && (now - lastOptionalFetchAt.trainingMetrics > signalsRateMs));
+        const wantEvalSignals = wantStabilityTab || (wantSignals && (now - lastOptionalFetchAt.evalSignals > evalRateMs));
 
         const reqs = [fetchJSON("data.json")];
         if (wantLogs) reqs.push(fetchJSON("logs.json"));
@@ -1363,10 +1390,8 @@
         if (wantTournaments) reqs.push(fetchJSON("tournaments.json"));
 
         if (wantQuality) reqs.push(fetchJSONFallback(["data_metrics.json", "../data_metrics.json"], { timeoutMs: 8000 }));
-        if (wantStability) {
-          reqs.push(fetchJSONFallback(["training_metrics.json", "../training_metrics.json"], { timeoutMs: 8000 }));
-          reqs.push(fetchJSONFallback(["eval_signals.json", "../eval_signals.json"], { timeoutMs: 12000 }));
-        }
+        if (wantTrainingMetrics) reqs.push(fetchJSONFallback(["training_metrics.json", "../training_metrics.json"], { timeoutMs: 8000 }));
+        if (wantEvalSignals) reqs.push(fetchJSONFallback(["eval_signals.json", "../eval_signals.json"], { timeoutMs: 12000 }));
 
         const res = await Promise.all(reqs);
         const trainingRes = res[0];
@@ -1375,14 +1400,14 @@
         const eloRes = wantElo ? res[i++] : { ok: false, status: 0, data: null };
         const tournamentsRes = wantTournaments ? res[i++] : { ok: false, status: 0, data: null };
         const qualityRes = wantQuality ? res[i++] : { ok: false, status: 0, data: null };
-        const trainingMetricsRes = wantStability ? res[i++] : { ok: false, status: 0, data: null };
-        const evalSignalsRes = wantStability ? res[i++] : { ok: false, status: 0, data: null };
+        const trainingMetricsRes = wantTrainingMetrics ? res[i++] : { ok: false, status: 0, data: null };
+        const evalSignalsRes = wantEvalSignals ? res[i++] : { ok: false, status: 0, data: null };
 
         if (trainingRes.ok) {
           lastOkAt = Date.now();
           actions.receiveTraining(trainingRes.data);
           actions._setOffline({ active: false, lastOk: nowIso() });
-        } else if (trainingRes.status !== 404) {
+        } else if (trainingRes.status !== 404 && trainingRes.status !== 0) {
           actions._setError("training", "Training data unavailable.");
         }
 
@@ -1419,25 +1444,31 @@
         }
 
         if (wantQuality) {
+          lastOptionalFetchAt.dataMetrics = now;
           if (qualityRes.ok) {
             lastOkAt = Date.now();
             actions.receiveOptional("dataMetrics", qualityRes.data);
-          } else if (qualityRes.status !== 404 && qualityRes.status !== 0) {
+          } else if (wantQualityTab && qualityRes.status !== 404 && qualityRes.status !== 0) {
             actions._setError("quality", "Data quality metrics unavailable.");
           }
         }
 
-        if (wantStability) {
+        if (wantTrainingMetrics) {
+          lastOptionalFetchAt.trainingMetrics = now;
           if (trainingMetricsRes.ok) {
             lastOkAt = Date.now();
             actions.receiveOptional("trainingMetrics", trainingMetricsRes.data);
-          } else if (trainingMetricsRes.status !== 404 && trainingMetricsRes.status !== 0) {
+          } else if (wantStabilityTab && trainingMetricsRes.status !== 404 && trainingMetricsRes.status !== 0) {
             actions._setError("stability", "Training stability metrics unavailable.");
           }
+        }
+
+        if (wantEvalSignals) {
+          lastOptionalFetchAt.evalSignals = now;
           if (evalSignalsRes.ok) {
             lastOkAt = Date.now();
             actions.receiveOptional("evalSignals", evalSignalsRes.data);
-          } else if (evalSignalsRes.status !== 404 && evalSignalsRes.status !== 0) {
+          } else if (wantStabilityTab && evalSignalsRes.status !== 404 && evalSignalsRes.status !== 0) {
             actions._setError("stability", "Evaluation signals unavailable.");
           }
         }
