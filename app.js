@@ -267,6 +267,266 @@
     }
   }
 
+  function safeText(x) {
+    if (x == null) return "—";
+    if (typeof x === "string") return x.trim() ? x : "—";
+    if (typeof x === "number" && isFinite(x)) return String(x);
+    if (typeof x === "boolean") return x ? "true" : "false";
+    return "—";
+  }
+
+  function buildPerceptualState(nextState, prevState) {
+    const prev = prevState && prevState.perceptual && typeof prevState.perceptual === "object" ? prevState.perceptual : null;
+    const now = Date.now();
+
+    const io = {
+      loading: nextState && nextState.loading ? nextState.loading : null,
+      error: nextState && nextState.error ? nextState.error : null
+    };
+
+    let hasError = false;
+    if (io.error) {
+      for (const k of Object.keys(io.error)) {
+        if (io.error[k]) { hasError = true; break; }
+      }
+    }
+
+    let busy = false;
+    if (io.loading) {
+      for (const k of Object.keys(io.loading)) {
+        if (io.loading[k]) { busy = true; break; }
+      }
+    }
+
+    const meta = {
+      connection: nextState && nextState.meta ? nextState.meta.connection : null,
+      lastSeen: nextState && nextState.meta ? nextState.meta.lastSeen : null,
+      offline: nextState && nextState.meta ? nextState.meta.offline : null
+    };
+
+    const offlineActive = !!(meta.offline && meta.offline.active);
+    const seenMs = bestBackendTimestampMs(nextState);
+    const ageMs = seenMs > 0 ? Math.max(0, now - seenMs) : Infinity;
+    const warnDropped = !offlineActive && !hasError && isFinite(ageMs) && ageMs >= DROPPED_THRESHOLD_MS;
+    const warnStale = !offlineActive && !hasError && isFinite(ageMs) && ageMs >= STALE_THRESHOLD_MS;
+    const warnStall = !offlineActive && !hasError && isFinite(ageMs) && ageMs >= STALL_THRESHOLD_MS;
+
+    const freshnessStatus = offlineActive ? "offline" : hasError ? "error" : warnStall ? "stall" : warnStale ? "stale" : warnDropped ? "delayed" : "ok";
+
+    const refs = {
+      training: nextState && nextState.data ? nextState.data.training : null,
+      progress: nextState && nextState.data ? nextState.data.progress : null,
+      elo: nextState && nextState.data ? nextState.data.elo : null,
+      eloLiveHistory: nextState && nextState.data ? nextState.data.eloLiveHistory : null,
+      tournaments: nextState && nextState.data ? nextState.data.tournaments : null,
+      logs: nextState && nextState.data ? nextState.data.logs : null,
+      dataMetrics: nextState && nextState.data ? nextState.data.dataMetrics : null,
+      trainingMetrics: nextState && nextState.data ? nextState.data.trainingMetrics : null,
+      evalSignals: nextState && nextState.data ? nextState.data.evalSignals : null
+    };
+
+    const ui = {
+      activeTab: nextState && typeof nextState.activeTab === "string" ? nextState.activeTab : "overview",
+      logs: nextState && nextState.ui ? nextState.ui.logs : null,
+      overlayOpen: !!(nextState && nextState.ui && nextState.ui.explain && nextState.ui.explain.open),
+      overlayVersion: nextState && nextState.ui && nextState.ui.explain ? nextState.ui.explain.version : null,
+      adminEnabled: ADMIN_ALLOWED && !!(nextState && nextState.ui && nextState.ui.admin && nextState.ui.admin.enabled)
+    };
+
+    const tm = refs.trainingMetrics && typeof refs.trainingMetrics === "object" ? refs.trainingMetrics : null;
+    const dm = refs.dataMetrics && typeof refs.dataMetrics === "object" ? refs.dataMetrics : null;
+    const es = refs.evalSignals && typeof refs.evalSignals === "object" ? refs.evalSignals : null;
+
+    const stableGate = tm && typeof tm.stable_for_sprt === "boolean" ? tm.stable_for_sprt : null;
+    const regFlag = !!(tm && tm.eval_regression) || !!(es && es.regression && es.regression.flag);
+
+    let driftWarn = false;
+    let driftL1 = null;
+    let driftType = null;
+    try {
+      const dist = dm && dm.distribution ? dm.distribution : null;
+      const warn = dist ? (dist.warning || dist.last_warning || null) : null;
+      driftType = warn && warn.type ? String(warn.type) : null;
+      const drift = dist && dist.drift ? dist.drift : null;
+      const l1 = drift ? Math.max(Number(drift.eval_l1 || 0), Number(drift.material_l1 || 0), Number(drift.phase_l1 || 0)) : null;
+      if (l1 != null && isFinite(l1)) driftL1 = l1;
+      driftWarn = !!warn || (driftL1 != null && isFinite(driftL1) && driftL1 >= 0.30);
+    } catch {
+      driftWarn = false;
+      driftL1 = null;
+      driftType = null;
+    }
+
+    let rawDominant = "training";
+    if (offlineActive || hasError) rawDominant = "connectivity";
+    else if (warnStall) rawDominant = "connectivity";
+    else if (regFlag) rawDominant = "stability";
+    else if (driftWarn) rawDominant = "quality";
+
+    let rawLevel = 0;
+    if (offlineActive || hasError) rawLevel = 3;
+    else if (warnStall) rawLevel = 4;
+    else if (regFlag) rawLevel = 3;
+    else if (driftWarn) rawLevel = 2;
+    else if (warnStale) rawLevel = 2;
+    else if (warnDropped) rawLevel = 1;
+
+    const prevLevel = prev && typeof prev.level === "number" ? prev.level : 0;
+    const prevDomain = prev && typeof prev.dominantDomain === "string" ? prev.dominantDomain : rawDominant;
+    const prevTime = prev && prev.time && typeof prev.time === "object" ? prev.time : { holdUntilMs: 0, lastLevelChangeMs: 0, lastDomainChangeMs: 0 };
+    const prevRecovery = prev && prev.recovery && typeof prev.recovery === "object" ? prev.recovery : { active: false, domain: null, sinceMs: null, minMs: STALE_THRESHOLD_MS, proven: null, pending: null };
+
+    let level = rawLevel;
+    let dominantDomain = rawDominant;
+    let holdUntilMs = typeof prevTime.holdUntilMs === "number" ? prevTime.holdUntilMs : 0;
+    let lastLevelChangeMs = typeof prevTime.lastLevelChangeMs === "number" ? prevTime.lastLevelChangeMs : 0;
+    let lastDomainChangeMs = typeof prevTime.lastDomainChangeMs === "number" ? prevTime.lastDomainChangeMs : 0;
+
+    let recovery = { ...prevRecovery };
+
+    if (recovery && recovery.active) {
+      const since = typeof recovery.sinceMs === "number" ? recovery.sinceMs : now;
+      const minMs = typeof recovery.minMs === "number" ? recovery.minMs : STALE_THRESHOLD_MS;
+      const okExit = (rawLevel === 0) && !offlineActive && !hasError && !warnDropped && !warnStale && !warnStall && ((now - since) >= minMs);
+      if (okExit) {
+        recovery = { active: false, domain: null, sinceMs: null, minMs: STALE_THRESHOLD_MS, proven: null, pending: null };
+      } else {
+        level = Math.max(1, rawLevel);
+        dominantDomain = (typeof recovery.domain === "string" && recovery.domain) ? recovery.domain : prevDomain;
+        holdUntilMs = Math.max(holdUntilMs, now + STALE_THRESHOLD_MS);
+      }
+    } else {
+      if (prevLevel >= 2 && rawLevel <= 1) {
+        recovery = {
+          active: true,
+          domain: prevDomain,
+          sinceMs: now,
+          minMs: STALE_THRESHOLD_MS,
+          proven: null,
+          pending: null
+        };
+        level = Math.max(1, rawLevel);
+        dominantDomain = prevDomain;
+        holdUntilMs = Math.max(holdUntilMs, now + STALE_THRESHOLD_MS);
+      }
+    }
+
+    if (!recovery.active) {
+      if (rawLevel > prevLevel) {
+        level = rawLevel;
+        holdUntilMs = Math.max(holdUntilMs, now + DROPPED_THRESHOLD_MS);
+        if (level !== prevLevel) lastLevelChangeMs = now;
+      } else if (rawLevel < prevLevel) {
+        if (now < holdUntilMs) level = prevLevel;
+        else {
+          level = rawLevel;
+          if (level !== prevLevel) lastLevelChangeMs = now;
+        }
+      } else {
+        level = rawLevel;
+      }
+
+      if (dominantDomain !== prevDomain) {
+        if (now < holdUntilMs) dominantDomain = prevDomain;
+        else {
+          dominantDomain = rawDominant;
+          lastDomainChangeMs = now;
+          holdUntilMs = Math.max(holdUntilMs, now + DROPPED_THRESHOLD_MS);
+        }
+      }
+    }
+
+    // Step 7 (Phase Transitions / Meaning Escalation):
+    // Meaning is earned. We avoid immediate Meaning appearance on a transient L2.
+    // - Recovery: always show (explicit behavioral phase)
+    // - L3/L4: immediate show (high-salience)
+    // - L2: show only after stability window, BUT once shown it must not flicker off
+    const prevMeaningShown = !!(prev && prev.meaning && prev.meaning.show);
+    let showMeaning = false;
+    if (recovery.active) showMeaning = true;
+    else if (level >= 3) showMeaning = true;
+    else if (level >= 2) {
+      if (prevMeaningShown) showMeaning = true;
+      else showMeaning = (typeof lastLevelChangeMs === "number") ? ((now - lastLevelChangeMs) >= DROPPED_THRESHOLD_MS) : true;
+    }
+    const meaning = {
+      show: !!showMeaning,
+      reality: showMeaning ? `L${level} · ${dominantDomain}` : "—",
+      proven: showMeaning ? (freshnessStatus === "ok" ? "freshness" : "—") : "—",
+      pending: showMeaning ? (recovery.active ? "recovery" : (freshnessStatus !== "ok" ? "freshness" : "—")) : "—"
+    };
+
+    const signals = {
+      sprtGate: {
+        text: stableGate == null ? "—" : (stableGate ? "OPEN" : "CLOSED"),
+        pillClass: stableGate == null ? "" : (stableGate ? "pill-ok" : "pill-warn")
+      },
+      regression: {
+        text: regFlag ? "FLAG" : "OK",
+        pillClass: regFlag ? "pill-bad" : "pill-ok"
+      },
+      drift: {
+        text: driftWarn ? (driftL1 != null && isFinite(driftL1) ? `DRIFT (${driftL1.toFixed(2)})` : "DRIFT") : (driftL1 != null && isFinite(driftL1) ? `OK (${driftL1.toFixed(2)})` : "—"),
+        pillClass: driftWarn ? "pill-warn" : (driftL1 != null && isFinite(driftL1) ? "pill-ok" : "")
+      },
+      curriculum: {
+        text: (tm && typeof tm.curriculum_stage === "number") ? `S${tm.curriculum_stage}` : "—",
+        pillClass: (tm && typeof tm.curriculum_stage === "number") ? "pill-ok" : ""
+      },
+      lrReason: {
+        text: (tm && tm.lr_reason) ? String(tm.lr_reason) : "—",
+        pillClass: (tm && tm.lr_reason) ? "pill-ok" : ""
+      },
+      note: {
+        text: driftWarn && driftType ? `drift: ${driftType}` : "—"
+      }
+    };
+
+    const keyParts = [
+      level,
+      dominantDomain,
+      recovery.active ? "R1" : "R0",
+      recovery.active ? String(recovery.domain || "") : "",
+      freshnessStatus,
+      hasError ? "E1" : "E0",
+      String(holdUntilMs || 0),
+      String(lastLevelChangeMs || 0),
+      String(lastDomainChangeMs || 0)
+    ];
+    const _key = keyParts.join("|");
+
+    return {
+      _key,
+      level,
+      dominantDomain,
+      freshness: {
+        status: freshnessStatus,
+        lastSeenIso: meta.lastSeen && meta.lastSeen.any ? meta.lastSeen.any : null
+      },
+      integrity: {
+        hasError,
+        status: hasError ? "error" : "ok"
+      },
+      time: {
+        holdUntilMs,
+        lastLevelChangeMs,
+        lastDomainChangeMs
+      },
+      recovery,
+      meaning,
+      signals,
+      system: {
+        busy,
+        offlineActive,
+        overlayOpen: ui.overlayOpen
+      },
+      ui,
+      meta,
+      io,
+      refs
+    };
+  }
+
   function sleepMs(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -459,7 +719,21 @@
     }
     function setState(nextState, meta) {
       if (nextState === state) return;
-      state = nextState;
+      const prevState = state;
+      let next = nextState;
+      try {
+        const computed = buildPerceptualState(next, prevState);
+        if (next && next.perceptual && next.perceptual._key === computed._key) {
+          next = { ...next, perceptual: next.perceptual };
+        } else {
+          next = { ...next, perceptual: computed };
+        }
+      } catch {
+        if (!next || !next.perceptual) {
+          next = { ...next, perceptual: buildPerceptualState(next, prevState) };
+        }
+      }
+      state = next;
       subs.forEach(fn => {
         try {
           fn(state, meta || {});
@@ -482,6 +756,29 @@
   const initialState = {
     activeTab: "overview",
     activeHeatmapPhase: "opening",
+    perceptual: {
+      _key: "0|training|R0||ok|E0|0|0|0",
+      level: 0,
+      dominantDomain: "training",
+      freshness: { status: "ok", lastSeenIso: null },
+      integrity: { hasError: false, status: "ok" },
+      time: { holdUntilMs: 0, lastLevelChangeMs: 0, lastDomainChangeMs: 0 },
+      recovery: { active: false, domain: null, sinceMs: null, minMs: STALE_THRESHOLD_MS, proven: null, pending: null },
+      meaning: { show: false, reality: "—", proven: "—", pending: "—" },
+      signals: {
+        sprtGate: { text: "—", pillClass: "" },
+        regression: { text: "—", pillClass: "" },
+        drift: { text: "—", pillClass: "" },
+        curriculum: { text: "—", pillClass: "" },
+        lrReason: { text: "—", pillClass: "" },
+        note: { text: "—" }
+      },
+      system: { busy: false, offlineActive: false, overlayOpen: false },
+      ui: { activeTab: "overview", logs: null, overlayOpen: false, overlayVersion: null, adminEnabled: false },
+      meta: { connection: null, lastSeen: null, offline: null },
+      io: { loading: null, error: null },
+      refs: { training: null, progress: null, elo: null, eloLiveHistory: null, tournaments: null, logs: null, dataMetrics: null, trainingMetrics: null, evalSignals: null }
+    },
     loading: {
       training: false,
       elo: false,
@@ -598,7 +895,7 @@
   const persistedActiveTab = persisted && persisted.activeTab ? persisted.activeTab : initialState.activeTab;
   const persistedOpened = shallowMerge(initialState.ui.opened, persisted && persisted.ui && persisted.ui.opened ? persisted.ui.opened : {});
   const openedWithActive = shallowMerge(persistedOpened, { [persistedActiveTab]: true });
-  const hydrated = shallowMerge(initialState, {
+  const hydratedBase = shallowMerge(initialState, {
     activeTab: persistedActiveTab,
     activeHeatmapPhase: persisted && persisted.activeHeatmapPhase ? persisted.activeHeatmapPhase : initialState.activeHeatmapPhase,
     data: {
@@ -614,6 +911,8 @@
       }
     }
   });
+
+  const hydrated = shallowMerge(hydratedBase, { perceptual: buildPerceptualState(hydratedBase, null) });
 
   const store = createStore(hydrated);
 
@@ -733,14 +1032,24 @@
     },
 
     _setLoading(key, value) {
-      store.update(s => shallowMerge(s, { loading: { [key]: !!value } }), {
+      const v = !!value;
+      store.update(s => {
+        const cur = !!(s && s.loading && s.loading[key]);
+        if (cur === v) return s;
+        return shallowMerge(s, { loading: { [key]: v } });
+      }, {
         type: "data/loading",
         key
       });
     },
 
     _setError(key, value) {
-      store.update(s => shallowMerge(s, { error: { [key]: value || null } }), {
+      const v = value || null;
+      store.update(s => {
+        const cur = (s && s.error && (key in s.error)) ? s.error[key] : null;
+        if (cur === v) return s;
+        return shallowMerge(s, { error: { [key]: v } });
+      }, {
         type: "data/error",
         key
       });

@@ -58,7 +58,12 @@
     <button class="nav-btn" data-tab="logs">Logs</button>
   </nav>
   <main class="container">
-    <section id="overview" class="tab active pro-card pro-card-garland">
+    <div id="meaningSurface" class="meaning-surface" hidden aria-live="polite">
+      <div class="ms-item"><b>Reality</b><span id="msReality">—</span></div>
+      <div class="ms-item"><b>Proven</b><span id="msProven">—</span></div>
+      <div class="ms-item"><b>Pending</b><span id="msPending">—</span></div>
+    </div>
+    <section id="overview" class="tab active pro-card pro-card-garland" data-domain="training">
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-overview"></div>
       <div class="stats-row">
@@ -105,7 +110,7 @@
       </div>
     </section>
 
-    <section id="quality" class="tab pro-card pro-card-garland">
+    <section id="quality" class="tab pro-card pro-card-garland" data-domain="quality">
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-overview"></div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
@@ -119,7 +124,7 @@
       </div>
     </section>
 
-    <section id="stability" class="tab pro-card pro-card-garland">
+    <section id="stability" class="tab pro-card pro-card-garland" data-domain="stability">
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-elo"></div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
@@ -131,7 +136,7 @@
         <div class="scroll-panel" id="evalSignals"></div>
       </div>
     </section>
-    <section id="elo" class="tab pro-card pro-card-garland">
+    <section id="elo" class="tab pro-card pro-card-garland" data-domain="elo">
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-elo"></div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
@@ -143,12 +148,12 @@
         <div id="top5" class="top5-grid"></div>
       </div>
     </section>
-    <section id="heatmap" class="tab pro-card pro-heatmap pro-card-garland">
+    <section id="heatmap" class="tab pro-card pro-heatmap pro-card-garland" data-domain="heatmap">
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-heatmap"></div>
       <div id="heatmapMount" class="embed-heatmap" aria-label="NNUE Activity Heatmap"></div>
     </section>
-    <section id="tournaments" class="tab pro-card pro-card-garland">
+    <section id="tournaments" class="tab pro-card pro-card-garland" data-domain="tournaments">
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-tournaments"></div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>
@@ -156,7 +161,7 @@
         <div id="tournamentList" class="tournament-list">Loading…</div>
       </div>
     </section>
-    <section id="logs" class="tab pro-card pro-card-garland">
+    <section id="logs" class="tab pro-card pro-card-garland" data-domain="logs">
       <div class="card-snowcap"></div>
       <div class="garland-decoration garland-logs"></div>
       <div class="card pro-card pro-card-garland"><div class="card-snowcap"></div><div class="garland-decoration"></div>

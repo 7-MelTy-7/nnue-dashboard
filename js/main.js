@@ -5,6 +5,14 @@
   const { store, actions } = app;
   const BUILD_ID = app.constants && app.constants.BUILD_ID ? String(app.constants.BUILD_ID) : "";
 
+  const SIG_DEBUG = (() => {
+    try {
+      return window.__SIG_DEBUG === true;
+    } catch {
+      return false;
+    }
+  })();
+
   function getMetaContent(name) {
     try {
       const el = document.querySelector(`meta[name="${name}"]`);
@@ -59,8 +67,7 @@
     if (!isFinite(d.getTime())) return "—";
     const hh = String(d.getHours()).padStart(2, "0");
     const mm = String(d.getMinutes()).padStart(2, "0");
-    const ss = String(d.getSeconds()).padStart(2, "0");
-    return `${hh}:${mm}:${ss}`;
+    return `${hh}:${mm}`;
   }
 
   function byId(id) {
@@ -82,6 +89,35 @@
     if (kind === "ok") el.classList.add("pill-ok");
     else if (kind === "warn") el.classList.add("pill-warn");
     else if (kind === "bad") el.classList.add("pill-bad");
+  }
+
+  function applyPerceptualDom(perceptual) {
+    const root = document.documentElement;
+    if (!root) return;
+    const p = perceptual && typeof perceptual === "object" ? perceptual : null;
+    const level = p && typeof p.level === "number" && isFinite(p.level) ? String(p.level) : "0";
+    const dom = p && typeof p.dominantDomain === "string" && p.dominantDomain ? p.dominantDomain : "training";
+    const rec = p && p.recovery && typeof p.recovery.active === "boolean" ? (p.recovery.active ? "1" : "0") : "0";
+    const fresh = p && p.freshness && typeof p.freshness.status === "string" ? p.freshness.status : "ok";
+
+    root.setAttribute("data-level", level);
+    root.setAttribute("data-dominant", dom);
+    root.setAttribute("data-recovery", rec);
+    root.setAttribute("data-freshness", fresh);
+  }
+
+  function renderMeaningSurface(meaning) {
+    if (!ui.els.meaningSurface) return;
+    const m = meaning && typeof meaning === "object" ? meaning : { show: false, reality: "—", proven: "—", pending: "—" };
+    const show = !!m.show;
+    const key = `${show ? "1" : "0"}|${typeof m.reality === "string" ? m.reality : "—"}|${typeof m.proven === "string" ? m.proven : "—"}|${typeof m.pending === "string" ? m.pending : "—"}`;
+    if (ui.meaningKey === key) return;
+    ui.meaningKey = key;
+    ui.els.meaningSurface.hidden = !show;
+    if (!show) return;
+    if (ui.els.msReality) ui.els.msReality.textContent = typeof m.reality === "string" ? m.reality : "—";
+    if (ui.els.msProven) ui.els.msProven.textContent = typeof m.proven === "string" ? m.proven : "—";
+    if (ui.els.msPending) ui.els.msPending.textContent = typeof m.pending === "string" ? m.pending : "—";
   }
 
   function fmtPct01(x) {
@@ -146,10 +182,16 @@
     if (!ui.els.progressFill || !ui.els.progressValue || !ui.els.progressText) return;
     const percent = (p && typeof p.percent === "number" && isFinite(p.percent)) ? Math.max(0, Math.min(1, p.percent)) : null;
     const pctText = (percent == null) ? "0%" : `${Math.round(percent * 100)}%`;
+
+    const label = (p && typeof p.text === "string" && p.text.trim()) ? p.text : "Idle";
+    const bar = (percent == null) ? "0%" : `${(percent * 100).toFixed(1)}%`;
+    const key = `${pctText}|${label}|${bar}`;
+    if (ui.progressKey === key) return;
+    ui.progressKey = key;
+
     ui.els.progressValue.textContent = pctText;
-    if (p && typeof p.text === "string" && p.text.trim()) ui.els.progressText.textContent = p.text;
-    else ui.els.progressText.textContent = "Idle";
-    ui.els.progressFill.style.width = (percent == null) ? "0%" : `${(percent * 100).toFixed(1)}%`;
+    ui.els.progressText.textContent = label;
+    ui.els.progressFill.style.width = bar;
   }
 
   function renderTournaments(state) {
@@ -378,20 +420,21 @@
   }
 
   const ui = {
-    tabTransition: {
-      inProgress: false,
-      timer: 0,
-      renderedTab: null
-    },
     logsRender: {
       key: null,
       filterKey: null,
       sliceStart: 0,
       prevLen: 0
     },
+    logsControlsKey: null,
+    healthKey: null,
+    offlineKey: null,
+    overviewKey: null,
+    progressKey: null,
     signalsKey: null,
     qualityKey: null,
     stabilityKey: null,
+    meaningKey: null,
     raf: 0,
     pendingState: null,
     els: null
@@ -401,6 +444,10 @@
     ui.els = {
       navButtons: Array.from(document.querySelectorAll(".top-nav button")),
       tabs: Array.from(document.querySelectorAll(".tab")),
+      meaningSurface: byId("meaningSurface"),
+      msReality: byId("msReality"),
+      msProven: byId("msProven"),
+      msPending: byId("msPending"),
       healthPill: byId("healthPill"),
       healthConn: byId("healthConn"),
       healthLast: byId("healthLast"),
@@ -459,41 +506,15 @@
   }
 
   function attachPulseCleaner(el) {
-    if (!el) return;
-    if (el.dataset && el.dataset.pulseBound === "1") return;
-    try {
-      el.addEventListener("animationend", (e) => {
-        if (!e || !e.animationName) return;
-        if (e.animationName !== "pulseUp" && e.animationName !== "pulseDown") return;
-        el.classList.remove("pulse-up", "pulse-down");
-      }, { passive: true });
-      el.dataset.pulseBound = "1";
-    } catch {
-      return;
-    }
+    return;
   }
 
   function toNumber(x) {
-    if (typeof x === "number" && isFinite(x)) return x;
-    if (typeof x === "string" && x.trim()) {
-      const v = Number(x);
-      if (isFinite(v)) return v;
-    }
     return null;
   }
 
   function applyPulse(el, prev, next, opts) {
-    if (!el) return;
-    const p = toNumber(prev);
-    const n = toNumber(next);
-    if (p == null || n == null) return;
-    if (p === n) return;
-    const isUp = !!(opts && opts.invert ? (n < p) : (n > p));
-    attachPulseCleaner(el);
-
-    el.classList.remove("pulse-up", "pulse-down");
-    void el.offsetWidth;
-    el.classList.add(isUp ? "pulse-up" : "pulse-down");
+    return;
   }
 
   function renderHealth(state) {
@@ -506,6 +527,16 @@
     const status = conn && conn.state ? conn.state : "disconnected";
     const transport = conn && conn.transport ? conn.transport : "poll";
 
+    const warnBits = [];
+    if (warn && warn.stale) warnBits.push("stale");
+    if (warn && warn.dropped) warnBits.push("delayed");
+    if (warn && warn.stall) warnBits.push("stall");
+    if (warn && warn.schema) warnBits.push("schema");
+    const lastTxt = formatLastUpdate(lastAny);
+    const key = `${status}|${transport}|${lastTxt}|${warnBits.join(",")}`;
+    if (ui.healthKey === key) return;
+    ui.healthKey = key;
+
     ui.els.healthPill.classList.toggle("health-connected", status === "connected");
     ui.els.healthPill.classList.toggle("health-reconnecting", status === "reconnecting");
     ui.els.healthPill.classList.toggle("health-disconnected", status === "disconnected");
@@ -515,16 +546,11 @@
       const t = transport === "ws" ? "WS" : transport === "sse" ? "SSE" : "POLL";
       ui.els.healthConn.textContent = status === "connected" ? `connected · ${t}` : status === "reconnecting" ? `reconnecting · ${t}` : `disconnected · ${t}`;
     }
-    if (ui.els.healthLast) ui.els.healthLast.textContent = `last: ${formatLastUpdate(lastAny)}`;
+    if (ui.els.healthLast) ui.els.healthLast.textContent = `last: ${lastTxt}`;
 
     if (ui.els.healthWarn) {
-      const bits = [];
-      if (warn && warn.stale) bits.push("stale");
-      if (warn && warn.dropped) bits.push("delayed");
-      if (warn && warn.stall) bits.push("stall");
-      if (warn && warn.schema) bits.push("schema");
-      ui.els.healthWarn.textContent = bits.length ? bits.join(" · ") : "";
-      ui.els.healthWarn.style.display = bits.length ? "" : "none";
+      ui.els.healthWarn.textContent = warnBits.length ? warnBits.join(" · ") : "";
+      ui.els.healthWarn.style.display = warnBits.length ? "" : "none";
     }
   }
 
@@ -532,11 +558,15 @@
     if (!ui.els.offlineBanner) return;
     const off = state.meta && state.meta.offline ? state.meta.offline : null;
     const active = !!(off && off.active);
-    ui.els.offlineBanner.style.display = active ? "" : "none";
-    if (!active) return;
 
     const lastOk = off && off.lastOk ? off.lastOk : (state.meta && state.meta.lastSeen ? state.meta.lastSeen.any : null);
     const t = formatLastUpdate(lastOk);
+    const key = `${active ? "1" : "0"}|${t}`;
+    if (ui.offlineKey === key) return;
+    ui.offlineKey = key;
+
+    ui.els.offlineBanner.style.display = active ? "" : "none";
+    if (!active) return;
     if (ui.els.offlineText) {
       ui.els.offlineText.textContent = `Backend offline. last: ${t}`;
     }
@@ -700,6 +730,11 @@
   function renderLogsControls(state) {
     const uiLogs = state.ui && state.ui.logs ? state.ui.logs : null;
     if (!uiLogs) return;
+
+    const key = `${uiLogs.level}|${uiLogs.subsystem}|${uiLogs.window}|${uiLogs.n}|${uiLogs.paused ? "1" : "0"}`;
+    if (ui.logsControlsKey === key) return;
+    ui.logsControlsKey = key;
+
     if (ui.els.logLevel) ui.els.logLevel.value = uiLogs.level;
     if (ui.els.logSubsystem) ui.els.logSubsystem.value = uiLogs.subsystem;
     if (ui.els.logWindow) ui.els.logWindow.value = uiLogs.window;
@@ -713,63 +748,6 @@
     ui.els.navButtons.forEach(btn => {
       btn.classList.toggle("active", normalizeTab(btn.getAttribute("data-tab")) === activeTab);
     });
-  }
-
-  function disableNav(disabled) {
-    ui.els.navButtons.forEach(btn => (btn.disabled = !!disabled));
-  }
-
-  function startTabTransition(targetTab) {
-    const target = normalizeTab(targetTab);
-    if (ui.tabTransition.timer) clearTimeout(ui.tabTransition.timer);
-
-    const current = ui.tabTransition.renderedTab;
-    if (!current) {
-      ui.els.tabs.forEach(tab => tab.classList.toggle("active", tab.id === target));
-      ui.tabTransition.renderedTab = target;
-      if (target === "heatmap") {
-        ensureHeatmapMounted();
-        postToHeatmap({ type: "heatmap:show" });
-        postToHeatmap({ type: "heatmap:setPhase", phase: store.getState().activeHeatmapPhase });
-        postToHeatmap({ type: "heatmap:visibility", visible: true });
-      }
-      return;
-    }
-
-    if (current === target) return;
-
-    ui.tabTransition.inProgress = true;
-    disableNav(true);
-
-    const currentEl = byId(current);
-    if (currentEl) currentEl.classList.add("leaving");
-
-    ui.tabTransition.timer = setTimeout(() => {
-      if (currentEl) {
-        currentEl.classList.remove("active");
-        currentEl.classList.remove("leaving");
-      }
-      ui.els.tabs.forEach(tab => {
-        tab.classList.toggle("active", tab.id === target);
-        if (tab.id !== target) tab.classList.remove("leaving");
-      });
-      ui.tabTransition.renderedTab = target;
-      ui.tabTransition.inProgress = false;
-      disableNav(false);
-
-      const s = store.getState();
-      if (target === "heatmap") {
-        ensureHeatmapMounted();
-        setTimeout(() => {
-          postToHeatmap({ type: "heatmap:show" });
-          postToHeatmap({ type: "heatmap:setPhase", phase: s.activeHeatmapPhase });
-          postToHeatmap({ type: "heatmap:visibility", visible: true });
-        }, 60);
-      } else {
-        postToHeatmap({ type: "heatmap:visibility", visible: false });
-      }
-      if (s.activeTab !== target) startTabTransition(s.activeTab);
-    }, 360);
   }
 
   function renderOverview(state) {
@@ -794,27 +772,35 @@
       nextElo = "—";
     }
 
+    const ms = (d && typeof d.elapsed_ms === "number") ? d.elapsed_ms : (d && typeof d.elapsedMs === "number" ? d.elapsedMs : null);
+    const nextTime = (ms != null) ? formatDuration(ms) : "—";
+
+    let nextStatus = "—";
+    if (state.error && state.error.training) nextStatus = state.error.training;
+    else if (d && typeof d.status_text === "string") nextStatus = d.status_text;
+    else if (d && typeof d.status === "string") nextStatus = d.status;
+    else if (state.loading && state.loading.training) nextStatus = "loading…";
+
+    const key = `${nextGames}|${nextLoss}|${nextLr}|${nextElo}|${nextTime}|${nextStatus}`;
+    if (ui.overviewKey === key) {
+      renderSignals(state);
+      return;
+    }
+    ui.overviewKey = key;
+
     if (ui.els.games) ui.els.games.textContent = nextGames;
     if (ui.els.loss) ui.els.loss.textContent = nextLoss;
     if (ui.els.lr) ui.els.lr.textContent = nextLr;
     if (ui.els.eloValue) ui.els.eloValue.textContent = nextElo;
 
-    applyPulse(ui.els.games, prevGames, nextGames);
-    applyPulse(ui.els.loss, prevLoss, nextLoss, { invert: true });
-    applyPulse(ui.els.lr, prevLr, nextLr);
-    applyPulse(ui.els.eloValue, prevElo, nextElo);
+    // no pulse (quiet-by-default)
 
     if (ui.els.time) {
-      const ms = (d && typeof d.elapsed_ms === "number") ? d.elapsed_ms : (d && typeof d.elapsedMs === "number" ? d.elapsedMs : null);
-      ui.els.time.textContent = (ms != null) ? formatDuration(ms) : "—";
+      ui.els.time.textContent = nextTime;
     }
 
     if (ui.els.statusText) {
-      if (state.error && state.error.training) ui.els.statusText.textContent = state.error.training;
-      else if (d && typeof d.status_text === "string") ui.els.statusText.textContent = d.status_text;
-      else if (d && typeof d.status === "string") ui.els.statusText.textContent = d.status;
-      else if (state.loading && state.loading.training) ui.els.statusText.textContent = "loading…";
-      else ui.els.statusText.textContent = "—";
+      ui.els.statusText.textContent = nextStatus;
 
       if (state.loading && state.loading.training) ui.els.statusText.setAttribute("aria-busy", "true");
       else ui.els.statusText.removeAttribute("aria-busy");
@@ -824,72 +810,58 @@
   }
 
   function renderSignals(state) {
-    const tm = state.data && state.data.trainingMetrics ? state.data.trainingMetrics : null;
-    const dm = state.data && state.data.dataMetrics ? state.data.dataMetrics : null;
-    const es = state.data && state.data.evalSignals ? state.data.evalSignals : null;
-
-    const tmIso = tm && typeof tm.generated_at === "string" ? tm.generated_at : "";
-    const dmIso = dm && typeof dm.generated_at === "string" ? dm.generated_at : "";
-    const esIso = es && typeof es.generated_at === "string" ? es.generated_at : "";
-    const key = `${tmIso}|${dmIso}|${esIso}|${state.activeTab}`;
+    const p = state && state.perceptual && typeof state.perceptual === "object" ? state.perceptual : null;
+    const key = p && typeof p._key === "string" ? `${p._key}|${state.activeTab}` : `no-perceptual|${state.activeTab}`;
     if (ui.signalsKey === key) return;
     ui.signalsKey = key;
 
-    const stable = tm && typeof tm.stable_for_sprt === "boolean" ? tm.stable_for_sprt : null;
-    if (stable == null) setPill(ui.els.sigSprtGate, "—", null);
-    else setPill(ui.els.sigSprtGate, stable ? "OPEN" : "CLOSED", stable ? "ok" : "warn");
-
-    const regFlag = (
-      !!(es && es.regression && es.regression.flag) ||
-      !!(tm && tm.eval_regression)
-    );
-    setPill(ui.els.sigRegression, regFlag ? "FLAG" : "OK", regFlag ? "bad" : "ok");
-
-    let driftKind = null;
-    let driftText = "—";
-    try {
-      const warn = dm && dm.distribution ? dm.distribution.warning : null;
-      const drift = dm && dm.distribution ? dm.distribution.drift : null;
-      const l1 = drift ? Math.max(Number(drift.eval_l1 || 0), Number(drift.material_l1 || 0), Number(drift.phase_l1 || 0)) : null;
-      if (warn) {
-        driftKind = "warn";
-        driftText = "DRIFT";
-        if (l1 != null && isFinite(l1)) driftText = `DRIFT (${fmtNumber(l1, 2)})`;
-      } else if (l1 != null && isFinite(l1)) {
-        driftKind = l1 >= 0.30 ? "warn" : "ok";
-        driftText = `OK (${fmtNumber(l1, 2)})`;
-      } else {
-        driftKind = null;
-        driftText = "—";
-      }
-    } catch {
-      driftKind = null;
-      driftText = "—";
+    const sig = p && p.signals ? p.signals : null;
+    if (ui.els.sigSprtGate) {
+      const t = sig && sig.sprtGate ? sig.sprtGate.text : "—";
+      const cls = sig && sig.sprtGate ? sig.sprtGate.pillClass : "";
+      ui.els.sigSprtGate.textContent = t;
+      ui.els.sigSprtGate.classList.remove("pill-ok", "pill-warn", "pill-bad");
+      if (cls) ui.els.sigSprtGate.classList.add(cls);
     }
-    setPill(ui.els.sigDrift, driftText, driftKind);
-
-    const stage = tm && typeof tm.curriculum_stage === "number" ? tm.curriculum_stage : null;
-    setPill(ui.els.sigCurriculum, stage == null ? "—" : `S${stage}`, stage == null ? null : "ok");
-
-    const lrReason = tm && typeof tm.lr_reason === "string" ? tm.lr_reason : null;
-    setPill(ui.els.sigLrReason, lrReason ? lrReason : "—", lrReason ? "ok" : null);
-
+    if (ui.els.sigRegression) {
+      const t = sig && sig.regression ? sig.regression.text : "—";
+      const cls = sig && sig.regression ? sig.regression.pillClass : "";
+      ui.els.sigRegression.textContent = t;
+      ui.els.sigRegression.classList.remove("pill-ok", "pill-warn", "pill-bad");
+      if (cls) ui.els.sigRegression.classList.add(cls);
+    }
+    if (ui.els.sigDrift) {
+      const t = sig && sig.drift ? sig.drift.text : "—";
+      const cls = sig && sig.drift ? sig.drift.pillClass : "";
+      ui.els.sigDrift.textContent = t;
+      ui.els.sigDrift.classList.remove("pill-ok", "pill-warn", "pill-bad");
+      if (cls) ui.els.sigDrift.classList.add(cls);
+    }
+    if (ui.els.sigCurriculum) {
+      const t = sig && sig.curriculum ? sig.curriculum.text : "—";
+      const cls = sig && sig.curriculum ? sig.curriculum.pillClass : "";
+      ui.els.sigCurriculum.textContent = t;
+      ui.els.sigCurriculum.classList.remove("pill-ok", "pill-warn", "pill-bad");
+      if (cls) ui.els.sigCurriculum.classList.add(cls);
+    }
+    if (ui.els.sigLrReason) {
+      const t = sig && sig.lrReason ? sig.lrReason.text : "—";
+      const cls = sig && sig.lrReason ? sig.lrReason.pillClass : "";
+      ui.els.sigLrReason.textContent = t;
+      ui.els.sigLrReason.classList.remove("pill-ok", "pill-warn", "pill-bad");
+      if (cls) ui.els.sigLrReason.classList.add(cls);
+    }
     if (ui.els.sigNote) {
-      const bits = [];
-      const rs = tm && Array.isArray(tm.stable_reasons) ? tm.stable_reasons : [];
-      if (stable === false && rs.length) bits.push(`gate: ${rs.slice(0, 4).join(", ")}`);
-      const er = tm && tm.eval_reason ? String(tm.eval_reason) : (es && es.regression && es.regression.reason ? String(es.regression.reason) : "");
-      if (regFlag && er) bits.push(er);
-      const warn = dm && dm.distribution && dm.distribution.warning ? dm.distribution.warning : null;
-      if (warn && warn.type) bits.push(`drift: ${warn.type}`);
-      ui.els.sigNote.textContent = bits.length ? bits.join(" · ") : "—";
+      const t = sig && sig.note ? sig.note.text : "—";
+      ui.els.sigNote.textContent = t;
     }
   }
 
   function renderQuality(state) {
-    const dm = state.data && state.data.dataMetrics ? state.data.dataMetrics : null;
+    const p = state && state.perceptual && typeof state.perceptual === "object" ? state.perceptual : null;
+    const dm = p && p.refs ? p.refs.dataMetrics : null;
     const iso = dm && typeof dm.generated_at === "string" ? dm.generated_at : "";
-    const key = `${iso}|${state.loading && state.loading.quality}|${state.error && state.error.quality}`;
+    const key = `${p && p._key ? p._key : "p0"}|${iso}|${state.loading && state.loading.quality}|${state.error && state.error.quality}`;
     if (ui.qualityKey === key) return;
     ui.qualityKey = key;
 
@@ -912,10 +884,6 @@
       } else {
         const f = dm.filter || {};
         const pb = dm.phase_balance || {};
-        const dist = dm.distribution || {};
-        const drift = dist.drift || null;
-        const warn = dist.warning || dist.last_warning || null;
-        const maxL1 = drift ? Math.max(Number(drift.eval_l1 || 0), Number(drift.material_l1 || 0), Number(drift.phase_l1 || 0)) : null;
 
         const parts = [];
         const seen = Number(f.seen);
@@ -927,10 +895,10 @@
         parts.push(`<div class=\"kv-item\"><b>Kept</b><span>${safeText(isFinite(kept) ? kept : f.kept)}</span></div>`);
         parts.push(`<div class=\"kv-item\"><b>Dropped</b><span>${safeText(dropped)}</span></div>`);
 
-        const driftKind = warn ? "pill-warn" : (maxL1 != null && isFinite(maxL1) && maxL1 >= 0.30) ? "pill-warn" : "pill-ok";
-        const driftText = warn ? "DRIFT" : "OK";
-        const driftSuffix = (maxL1 != null && isFinite(maxL1)) ? ` (${fmtNumber(maxL1, 2)})` : "";
-        parts.push(`<div class=\"kv-item\"><b>Drift</b><span class=\"pill ${driftKind}\">${driftText}${driftSuffix}</span></div>`);
+        const sig = p && p.signals ? p.signals : null;
+        const driftText = sig && sig.drift ? sig.drift.text : "—";
+        const driftClass = sig && sig.drift ? sig.drift.pillClass : "";
+        parts.push(`<div class=\"kv-item\"><b>Drift</b><span class=\"pill ${driftClass}\">${safeText(driftText)}</span></div>`);
         parts.push(`<div class=\"kv-item\"><b>Phase window</b><span>${safeText(pb.window)}</span></div>`);
 
         ui.els.qualitySummary.innerHTML = parts.join("");
@@ -1005,8 +973,9 @@
   }
 
   function renderStability(state) {
-    const tm = state.data && state.data.trainingMetrics ? state.data.trainingMetrics : null;
-    const es = state.data && state.data.evalSignals ? state.data.evalSignals : null;
+    const p = state && state.perceptual && typeof state.perceptual === "object" ? state.perceptual : null;
+    const tm = p && p.refs ? p.refs.trainingMetrics : null;
+    const es = p && p.refs ? p.refs.evalSignals : null;
     const isoTm = tm && typeof tm.generated_at === "string" ? tm.generated_at : "";
     const isoEs = es && typeof es.generated_at === "string" ? es.generated_at : "";
     const key = `${isoTm}|${isoEs}|${state.loading && state.loading.stability}|${state.error && state.error.stability}`;
@@ -1030,11 +999,12 @@
       } else if (!tm && !es) {
         ui.els.stabilitySummary.innerHTML = "<div class=\"panel-note\">No data.</div>";
       } else {
-        const stable = tm && typeof tm.stable_for_sprt === "boolean" ? tm.stable_for_sprt : null;
-        const stableKind = stable == null ? "" : (stable ? "pill-ok" : "pill-warn");
-        const stableTxt = stable == null ? "—" : (stable ? "OPEN" : "CLOSED");
+        const sig = p && p.signals ? p.signals : null;
+        const stableTxt = sig && sig.sprtGate ? sig.sprtGate.text : "—";
+        const stableKind = sig && sig.sprtGate ? sig.sprtGate.pillClass : "";
+        const regTxt = sig && sig.regression ? sig.regression.text : "—";
+        const regKind = sig && sig.regression ? sig.regression.pillClass : "";
         const reasons = tm && Array.isArray(tm.stable_reasons) ? tm.stable_reasons : [];
-        const evalReg = !!(tm && tm.eval_regression) || !!(es && es.regression && es.regression.flag);
         const evalReason = tm && tm.eval_reason ? String(tm.eval_reason) : (es && es.regression && es.regression.reason ? String(es.regression.reason) : "");
 
         const parts = [];
@@ -1046,10 +1016,10 @@
         if (tm && typeof tm.lr === "number") parts.push(`<div class=\"kv-item\"><b>LR</b><span>${fmtNumber(tm.lr, 6)}</span></div>`);
         if (tm && tm.lr_reason) parts.push(`<div class=\"kv-item\"><b>LR reason</b><span>${safeText(tm.lr_reason)}</span></div>`);
         if (tm && typeof tm.curriculum_stage === "number") parts.push(`<div class=\"kv-item\"><b>Curriculum</b><span>${safeText(tm.curriculum_stage)}</span></div>`);
-        parts.push(`<div class=\"kv-item\"><b>SPRT gate</b><span class=\"pill ${stableKind}\">${stableTxt}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>SPRT gate</b><span class=\"pill ${stableKind}\">${safeText(stableTxt)}</span></div>`);
         parts.push(`<div class=\"kv-item\"><b>Gate reasons</b><span>${reasons && reasons.length ? reasons.slice(0, 6).join(", ") : "—"}</span></div>`);
-        parts.push(`<div class=\"kv-item\"><b>Eval regression</b><span class=\"pill ${evalReg ? "pill-bad" : "pill-ok"}\">${evalReg ? "FLAG" : "OK"}</span></div>`);
-        parts.push(`<div class=\"kv-item\"><b>Eval reason</b><span>${evalReg ? (evalReason || "—") : "—"}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>Eval regression</b><span class=\"pill ${regKind}\">${safeText(regTxt)}</span></div>`);
+        parts.push(`<div class=\"kv-item\"><b>Eval reason</b><span>${(regTxt === "FLAG") ? (evalReason || "—") : "—"}</span></div>`);
         ui.els.stabilitySummary.innerHTML = parts.join("");
       }
     }
@@ -1068,6 +1038,9 @@
         return;
       }
 
+      const sig = p && p.signals ? p.signals : null;
+      const regTxt = sig && sig.regression ? sig.regression.text : "—";
+      const regKind = sig && sig.regression ? sig.regression.pillClass : "";
       const reg = es.regression || {};
       const comps = es.comparisons && typeof es.comparisons === "object" ? es.comparisons : {};
       const rows = Object.entries(comps).map(([k, v]) => {
@@ -1078,8 +1051,7 @@
         return `<div class=\"eval-row\"><b>${k}</b><span>W ${wins} · L ${losses} · D ${draws}</span><span>ELO ${elo}</span></div>`;
       }).join("");
 
-      const pill = reg.flag ? "pill-bad" : "pill-ok";
-      const head = `<div class=\"panel-note\">regression: <span class=\"pill ${pill}\">${reg.flag ? "FLAG" : "OK"}</span> ${reg.reason ? `· ${safeText(reg.reason)}` : ""}</div>`;
+      const head = `<div class=\"panel-note\">regression: <span class=\"pill ${regKind}\">${safeText(regTxt)}</span> ${(regTxt === "FLAG" && reg.reason) ? `· ${safeText(reg.reason)}` : ""}</div>`;
       ui.els.evalSignals.innerHTML = head + (rows || "<div class=\"panel-note\">No comparisons.</div>");
     }
   }
@@ -1256,11 +1228,7 @@
       ui.els.explainConf.textContent = `= ${lo} — ${hi}`;
     }
 
-    let note = "Stable version.";
-    if (v.status === "accepted") note = "✔ Statistically better than baseline.";
-    if (v.status === "rejected") note = "✖ Failed SPRT or marked bad.";
-    if (v.status === "regressed") note = "⚠ Performance regression detected.";
-    if (ui.els.explainNote) ui.els.explainNote.textContent = note;
+    if (ui.els.explainNote) ui.els.explainNote.textContent = "";
   }
 
   function renderHeatmapSync(state, meta) {
@@ -1270,9 +1238,217 @@
     }
   }
 
+  // Phase 6.6 — CONTRACT LOCKDOWN & INVARIANTS (Signature Layer)
+  //
+  // INVARIANTS (authoritative):
+  // - Allowed html[data-sig] values: "idle" | "active" (NO OTHER VALUES)
+  // - Single source of truth for data-sig and signature variables is routeSignatureState()
+  // - quiet == data-sig="active"  => focus MUST be stabilized: --sig-focus-x/y == 50%/50%
+  // - missing/invalid state => fallback to data-sig="active" (quiet)
+  // - CSS MUST NOT set html[data-sig] (data-sig is owned by this JS bridge)
+  // - JS outside this bridge MUST NOT touch Signature variables (no other setters for --sig-*)
+  //
+  // NO-GO ZONES (Phase 6.x is infrastructure, not a playground):
+  // - Do NOT add new reasons for quiet in 6.x without a new major phase.
+  // - Do NOT change the priority table without a new major phase.
+  // - Do NOT introduce new --sig-* variables in 6.x.
+  // - Do NOT modify body::before Signature Layer composition outside Phase 5.x.
+  function routeSignatureState(state) {
+    const root = document.documentElement;
+    if (!root) return;
+
+    // SAFETY NET (Phase 6.2):
+    // - Single control point: html[data-sig].
+    // - Allowed states: "active" (quiet) and "idle" (enriched).
+    // - Any missing/invalid/unknown state MUST degrade to "active".
+    // - No logs, no errors, deterministic outcome.
+
+    if (!state || typeof state !== "object") {
+      if (SIG_DEBUG) console.debug('[sig] state:invalid -> data-sig="active"');
+      root.setAttribute("data-sig", "active");
+      return;
+    }
+
+    const rawAttr = root.getAttribute("data-sig");
+    const cur = (typeof rawAttr === "string") ? rawAttr : "";
+    if (cur && cur !== "active" && cur !== "idle") {
+      if (SIG_DEBUG) console.debug(`[sig] data-sig:${cur} (invalid) -> data-sig="active"`);
+      root.setAttribute("data-sig", "active");
+      try {
+        root.style.setProperty("--sig-focus-x", "50%");
+        root.style.setProperty("--sig-focus-y", "50%");
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    // Phase 6.5 (Priority Resolution & State Coherence):
+    // Single priority table (highest -> lowest), used for BOTH:
+    // - data-sig routing (active/idle)
+    // - --sig-focus-x/y mapping
+    //
+    // Priority:
+    // 1) offline / error
+    // 2) overlay open
+    // 3) busy / loading
+    // 4) tab transition
+    // 5) normal
+    //
+    // Coherence rule:
+    // If routed to quiet (data-sig="active"), focus MUST be stabilized (50% 50%).
+    try {
+      const offlineActive = !!(state.meta && state.meta.offline && state.meta.offline.active);
+
+      let hasError = false;
+      if (state.error) {
+        for (const k of Object.keys(state.error)) {
+          if (state.error[k]) {
+            hasError = true;
+            break;
+          }
+        }
+      }
+
+      const overlayOpen = !!(state.ui && state.ui.explain && state.ui.explain.open);
+
+      let busy = false;
+      if (state.loading) {
+        for (const k of Object.keys(state.loading)) {
+          if (state.loading[k]) {
+            busy = true;
+            break;
+          }
+        }
+      }
+
+      const tabTransition = false;
+
+      let reason = "normal";
+      if (offlineActive || hasError) reason = "offline/error";
+      else if (overlayOpen) reason = "overlay";
+      else if (busy) reason = "busy";
+      else if (tabTransition) reason = "tab";
+
+      const sig = (reason === "normal") ? "idle" : "active";
+      const fx = "50%";
+      const fy = (sig === "active") ? "50%" : "50%";
+
+      const prevSig = root.getAttribute("data-sig") || "";
+      if (prevSig !== sig) root.setAttribute("data-sig", sig);
+
+      const prevFx = root.style.getPropertyValue("--sig-focus-x") || "";
+      const prevFy = root.style.getPropertyValue("--sig-focus-y") || "";
+      if (prevFx !== fx) root.style.setProperty("--sig-focus-x", fx);
+      if (prevFy !== fy) root.style.setProperty("--sig-focus-y", fy);
+
+      if (SIG_DEBUG) {
+        const dbgSig = root.getAttribute("data-sig") || "";
+        const okSig = dbgSig === "idle" || dbgSig === "active";
+        const dbgFx = root.style.getPropertyValue("--sig-focus-x") || "";
+        const dbgFy = root.style.getPropertyValue("--sig-focus-y") || "";
+        const okFocus = (dbgSig !== "active") || (dbgFx === "50%" && dbgFy === "50%");
+        if (!okSig || !okFocus) {
+          console.debug(`[sig] invariant violation: data-sig="${dbgSig}" focus=${dbgFx} ${dbgFy}`);
+        }
+      }
+
+      if (SIG_DEBUG) console.debug(`[sig] prio=${reason} -> data-sig="${sig}" focus=${fx} ${fy}`);
+      return;
+    } catch {
+      try {
+        root.setAttribute("data-sig", "active");
+        root.style.setProperty("--sig-focus-x", "50%");
+        root.style.setProperty("--sig-focus-y", "50%");
+      } catch {
+        // ignore
+      }
+      // ignore
+      return;
+    }
+
+    const offlineActive = !!(state.meta && state.meta.offline && state.meta.offline.active);
+
+    let hasError = false;
+    if (state.error) {
+      for (const k of Object.keys(state.error)) {
+        if (state.error[k]) {
+          hasError = true;
+          break;
+        }
+      }
+    }
+
+    const overlayOpen = !!(state.ui && state.ui.explain && state.ui.explain.open);
+
+    // Phase 6.4 (Structural Focus Mapping):
+    // Discrete, deterministic mapping of UI structural states -> --sig-focus-x/y.
+    // No motion, no transitions, no measurements; fixed percentages only.
+    // Single source of truth: same state signals as data-sig routing.
+    try {
+      const fx = "50%";
+      let fy = "50%";
+      if (overlayOpen) fy = "40%";
+      root.style.setProperty("--sig-focus-x", fx);
+      root.style.setProperty("--sig-focus-y", fy);
+    } catch {
+      // ignore
+    }
+
+    let busy = !!(state.loading && (state.loading.training || state.loading.elo || state.loading.logs || state.loading.tournaments || state.loading.quality || state.loading.stability));
+
+    // Phase 6.4 (Structural Focus Mapping) - authoritative mapping.
+    // States:
+    // - Normal: 50% 50%
+    // - Overlay open: 50% 40%
+    // - Busy / tab transition / offline / error: stabilized at 50% 50%
+    try {
+      const fx = "50%";
+      let fy = "50%";
+      if (overlayOpen) fy = "40%";
+      if (offlineActive || hasError || busy) fy = "50%";
+      root.style.setProperty("--sig-focus-x", fx);
+      root.style.setProperty("--sig-focus-y", fy);
+    } catch {
+      // ignore
+    }
+
+    const forceQuiet = offlineActive || hasError || overlayOpen || busy;
+    const next = forceQuiet ? "active" : "";
+
+    // Phase 6.2 safety: in normal operation we use an explicit "idle" state.
+    // This allows CSS to treat missing data-sig as a fault-path and degrade to quiet.
+    if (!forceQuiet) {
+      if (SIG_DEBUG) console.debug(`[sig] offline=${offlineActive} error=${hasError} overlay=${overlayOpen} busy=${busy} tab=false -> data-sig="idle"`);
+      const prevSig = root.getAttribute("data-sig") || "";
+      if (prevSig !== "idle") root.setAttribute("data-sig", "idle");
+      return;
+    }
+
+    if (SIG_DEBUG) console.debug(`[sig] offline=${offlineActive} error=${hasError} overlay=${overlayOpen} busy=${busy} tab=false -> data-sig="active"`);
+    const prev = root.getAttribute("data-sig") || "";
+    if (prev === next) return;
+
+    if (next) root.setAttribute("data-sig", next);
+    else root.removeAttribute("data-sig");
+  }
+
   function renderAll(state, meta) {
+    routeSignatureState(state);
+    applyPerceptualDom(state && state.perceptual ? state.perceptual : null);
+    renderMeaningSurface(state && state.perceptual ? state.perceptual.meaning : null);
     setNavActive(state.activeTab);
-    if (!ui.tabTransition.inProgress) startTabTransition(state.activeTab);
+    ui.els.tabs.forEach(tab => tab.classList.toggle("active", tab.id === state.activeTab));
+
+    if (state.activeTab === "heatmap") {
+      ensureHeatmapMounted();
+      postToHeatmap({ type: "heatmap:show" });
+      postToHeatmap({ type: "heatmap:setPhase", phase: state.activeHeatmapPhase });
+      postToHeatmap({ type: "heatmap:visibility", visible: true });
+    } else {
+      postToHeatmap({ type: "heatmap:visibility", visible: false });
+    }
+
     renderHealth(state);
     renderOffline(state);
     renderAdmin(state);
@@ -1308,180 +1484,7 @@
     cacheEls();
     bindUIEvents();
 
-    ui.tabTransition.renderedTab = null;
     scheduleRender(store.getState(), { type: "init" });
     store.subscribe((s, meta) => scheduleRender(s, meta));
-
-    // Create garland bulbs dynamically
-    function createGarlandBulbs(container) {
-      if (container.querySelector('.garland-bulb')) return;
-      const rect = container.getBoundingClientRect();
-      const width = Math.max(320, rect.width || 0);
-      const bulbCount = Math.max(18, Math.min(44, Math.round(width / 26)));
-
-      const palette = [
-        '#ff4d4d',
-        '#2ee59d',
-        '#3b9dff',
-        '#ffd166',
-        '#fff2cc'
-      ];
-
-      const key = (container.className || '').split(/\s+/).sort().join('|');
-      let seed = 2166136261;
-      for (let i = 0; i < key.length; i++) {
-        seed ^= key.charCodeAt(i);
-        seed = Math.imul(seed, 16777619);
-      }
-      function rand() {
-        seed ^= seed << 13;
-        seed ^= seed >>> 17;
-        seed ^= seed << 5;
-        return ((seed >>> 0) % 10000) / 10000;
-      }
-
-      const offset = Math.floor(rand() * palette.length);
-
-      let delayMode = 'rand';
-      let delayStep = 0.12;
-      let delayScale = 1.0;
-      if (container.classList.contains('garland-overview')) {
-        delayMode = 'index';
-        delayStep = 0.12;
-      } else if (container.classList.contains('garland-heatmap')) {
-        delayMode = 'index';
-        delayStep = 0.18;
-      } else if (container.classList.contains('garland-elo')) {
-        delayMode = 'rand';
-        delayScale = 1.0;
-      } else if (container.classList.contains('garland-tournaments')) {
-        delayMode = 'rand';
-        delayScale = 0.9;
-      } else if (container.classList.contains('garland-logs')) {
-        delayMode = 'rand';
-        delayScale = 0.8;
-      } else if (container.classList.contains('garland-modal')) {
-        delayMode = 'rand';
-        delayScale = 0.7;
-      }
-
-      for (let i = 0; i < bulbCount; i++) {
-        const bulb = document.createElement('div');
-        bulb.className = 'garland-bulb';
-
-        const p = (i + offset) % palette.length;
-        bulb.style.color = palette[p];
-
-        const r = rand();
-        bulb.style.setProperty('--i', String(i));
-        bulb.style.setProperty('--rand', String(r));
-
-        const delay = delayMode === 'index' ? -(i * delayStep) : -(r * delayScale);
-        bulb.style.setProperty('--d', `${delay.toFixed(3)}s`);
-
-        container.appendChild(bulb);
-      }
-    }
-
-    document
-      .querySelectorAll('.tab > .garland-decoration, .explain-card > .garland-decoration')
-      .forEach(createGarlandBulbs);
-
-    // SNOW ANIMATION
-    const canvas = document.getElementById('snow');
-    if (canvas) {
-      const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const isCyber = !!(document.documentElement && document.documentElement.classList && document.documentElement.classList.contains('theme-cyber-frost'));
-      const ctx = canvas.getContext('2d');
-      let W = window.innerWidth, H = window.innerHeight;
-      canvas.width = W;
-      canvas.height = H;
-
-      window.addEventListener('resize', () => {
-        W = window.innerWidth;
-        H = window.innerHeight;
-        canvas.width = W;
-        canvas.height = H;
-      });
-
-      let snowflakes = [];
-      function spawnSnow() {
-        if (reduceMotion) return;
-        while (snowflakes.length < 60) {
-          snowflakes.push({
-            x: Math.random() * W,
-            y: Math.random() * H,
-            r: 0.8 + Math.random() * 1.6,
-            s: 0.4 + Math.random() * 0.9,
-            a: Math.random() * 2 * Math.PI,
-            o: 0.22 + Math.random() * 0.28,
-            w: 0.15 + Math.random() * 0.35
-          });
-        }
-      }
-
-      function drawLinks(t) {
-        if (!isCyber) return;
-        const maxDist = Math.min(140, Math.max(90, Math.floor(Math.min(W, H) * 0.18)));
-        const maxDist2 = maxDist * maxDist;
-        ctx.save();
-        ctx.lineWidth = 1;
-        ctx.shadowBlur = 0;
-        for (let i = 0; i < snowflakes.length; i++) {
-          const a = snowflakes[i];
-          for (let j = i + 1; j < snowflakes.length; j++) {
-            const b = snowflakes[j];
-            const dx = a.x - b.x;
-            const dy = a.y - b.y;
-            const d2 = dx * dx + dy * dy;
-            if (d2 > maxDist2) continue;
-            const d = Math.sqrt(d2);
-            const x = 1 - (d / maxDist);
-            const pulse = 0.65 + 0.35 * Math.sin((t / 1400) + a.a + b.a);
-            const alpha = Math.max(0, Math.min(0.22, x * 0.22 * pulse));
-            if (alpha < 0.02) continue;
-            ctx.strokeStyle = `rgba(120, 230, 255, ${alpha.toFixed(3)})`;
-            ctx.beginPath();
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(b.x, b.y);
-            ctx.stroke();
-          }
-        }
-        ctx.restore();
-      }
-
-      function drawSnow() {
-        if (reduceMotion) {
-          ctx.clearRect(0, 0, W, H);
-          return;
-        }
-        ctx.clearRect(0, 0, W, H);
-        const t = Date.now();
-
-        drawLinks(t);
-
-        for (const f of snowflakes) {
-          ctx.globalAlpha = f.o;
-          ctx.beginPath();
-          ctx.arc(f.x, f.y, f.r, 0, 2 * Math.PI);
-          ctx.fillStyle = isCyber ? "rgba(235, 252, 255, 0.92)" : "rgba(255,255,255,0.9)";
-          ctx.shadowColor = isCyber ? "rgba(90, 235, 255, 0.28)" : "rgba(160, 215, 255, 0.18)";
-          ctx.shadowBlur = 1 + 2 * f.r;
-          ctx.fill();
-          f.y += f.s;
-          f.x += Math.sin(t / 5200 + f.a) * f.w;
-          if (f.y > H + 4) {
-            f.y = -6;
-            f.x = Math.random() * W;
-          }
-        }
-        ctx.globalAlpha = 1;
-        ctx.shadowBlur = 0;
-        requestAnimationFrame(drawSnow);
-      }
-
-      spawnSnow();
-      drawSnow();
-    }
   });
 })();

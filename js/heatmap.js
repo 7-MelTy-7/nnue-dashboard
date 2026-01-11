@@ -8,6 +8,7 @@ let zeroSizeRetries = 0;
 
 let pollTimer = 0;
 let isVisible = true;
+let lastRawPayloadText = "";
 
 function getQueryParam(name) {
   try {
@@ -125,15 +126,6 @@ function setActiveButtons() {
 function setPhase(p) {
   phase = normalizePhase(p);
   setActiveButtons();
-  const board = document.getElementById("board");
-  if (board) {
-    board.classList.add("phase-switch");
-    setTimeout(() => {
-      render();
-      board.classList.remove("phase-switch");
-    }, 160);
-    return;
-  }
   render();
 }
 
@@ -166,7 +158,17 @@ async function loadData() {
       render();
       return;
     }
-    data = await res.json();
+    const nextText = await res.text();
+    if (nextText && nextText === lastRawPayloadText) {
+      setStatus("");
+      return;
+    }
+    lastRawPayloadText = nextText || "";
+    try {
+      data = nextText ? JSON.parse(nextText) : null;
+    } catch {
+      data = null;
+    }
     setStatus("");
     render();
   } catch {
