@@ -3495,3 +3495,73 @@ body {
     padding: var(--plv-xs) var(--plv-s);
   }
 }
+
+/* EXPERIENCE MODE - CORE STYLES */
+:root {
+    --exp-glow-color: rgba(0, 212, 255, 0.5);
+    --exp-speed: 1s;
+    --exp-frost: blur(0px);
+}
+
+#experience-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.panel, main, aside, .card {
+    transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+    backdrop-filter: var(--exp-frost);
+    position: relative;
+    z-index: 2;
+}
+
+[data-state="calm"] {
+    --exp-glow-color: rgba(0, 150, 255, 0.3);
+    --exp-frost: blur(8px);
+}
+
+[data-state="calm"] .panel {
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 20px var(--exp-glow-color);
+}
+
+[data-state="intense"] {
+    --exp-glow-color: rgba(255, 215, 0, 0.6);
+    --exp-frost: blur(4px);
+}
+
+[data-state="intense"] .panel {
+    border-color: rgba(255, 215, 0, 0.4);
+    box-shadow:
+      0 0 40px var(--exp-glow-color),
+      inset 0 0 15px rgba(255, 215, 0, 0.1);
+    transform: scale(1.005);
+}
+
+[data-state="intense"] .value,
+[data-state="intense"] h1 {
+    animation: textPulse 1.5s infinite alternate;
+    text-shadow: 0 0 10px var(--exp-glow-color);
+}
+
+@keyframes textPulse {
+    from { filter: hue-rotate(0deg) brightness(1); }
+    to   { filter: hue-rotate(15deg) brightness(1.3); }
+}
+
+.frost-edge {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #fff, transparent);
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+@media (max-width: 768px) {
+    .panel { backdrop-filter: none !important; }
+    #experience-canvas { opacity: 0.6; }
+}
